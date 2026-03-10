@@ -79,6 +79,74 @@ def test_docling_env_propagation(mock_run, docling_parser, dummy_path):
     assert kwargs["env"]["PATH"] == os.environ["PATH"]
 
 
+@pytest.mark.parametrize("table_mode", ["accurate", "fast"])
+@patch("subprocess.run")
+def test_docling_cli_table_mode(mock_run, docling_parser, dummy_path, table_mode):
+    mock_run.return_value = MagicMock(returncode=0, stdout="")
+
+    docling_parser._run_docling_command(
+        dummy_path,
+        "out",
+        "stem",
+        table_mode=table_mode,
+    )
+
+    cmd = mock_run.call_args.args[0]
+    assert "--table-mode" in cmd
+    assert cmd[cmd.index("--table-mode") + 1] == table_mode
+    assert cmd[-1] == dummy_path
+
+
+@patch("subprocess.run")
+def test_docling_cli_boolean_flags(mock_run, docling_parser, dummy_path):
+    mock_run.return_value = MagicMock(returncode=0, stdout="")
+
+    docling_parser._run_docling_command(
+        dummy_path,
+        "out",
+        "stem",
+        tables=False,
+        allow_ocr=False,
+        ocr_engine="tesseract",
+        artifacts_path="/models/docling",
+        abort_on_error=True,
+    )
+
+    cmd = mock_run.call_args.args[0]
+    assert "--no-tables" in cmd
+    assert "--no-ocr" in cmd
+    assert "--ocr-engine" in cmd
+    assert cmd[cmd.index("--ocr-engine") + 1] == "tesseract"
+    assert "--artifacts-path" in cmd
+    assert cmd[cmd.index("--artifacts-path") + 1] == "/models/docling"
+    assert "--abort-on-error" in cmd
+    assert cmd[-1] == dummy_path
+
+
+@patch("subprocess.run")
+def test_docling_ignores_generic_parser_kwargs(mock_run, docling_parser, dummy_path):
+    mock_run.return_value = MagicMock(returncode=0, stdout="")
+
+    docling_parser._run_docling_command(
+        dummy_path,
+        "out",
+        "stem",
+        backend="pipeline",
+        device="cpu",
+        source="huggingface",
+        formula=False,
+        table=False,
+        vlm_url="http://127.0.0.1:30000",
+        start_page=1,
+        end_page=2,
+    )
+
+    cmd = mock_run.call_args.args[0]
+    assert "--table-mode" not in cmd
+    assert "--pdf-backend" not in cmd
+    assert cmd[-1] == dummy_path
+
+
 def test_mineru_unknown_kwargs(mineru_parser, dummy_path):
     # Mineru should fail fast on unknown kwargs
     with pytest.raises(TypeError) as excinfo:
@@ -86,12 +154,12 @@ def test_mineru_unknown_kwargs(mineru_parser, dummy_path):
     assert "unexpected keyword argument(s): unknown_arg" in str(excinfo.value)
 
 
-@patch("subprocess.run")
-def test_docling_unknown_kwargs(mock_run, docling_parser, dummy_path):
-    mock_run.return_value = MagicMock(returncode=0, stdout="")
-    # Docling should NOT fail on unknown kwargs as per user request
-    docling_parser._run_docling_command(dummy_path, "out", "stem", unknown_arg="allow")
-    # No exception means success
+def test_docling_unknown_kwargs(docling_parser, dummy_path):
+    with pytest.raises(TypeError) as excinfo:
+        docling_parser._run_docling_command(
+            dummy_path, "out", "stem", unknown_arg="fail"
+        )
+    assert "unexpected keyword argument(s): unknown_arg" in str(excinfo.value)
 
 
 def test_invalid_env_type(mineru_parser, docling_parser, dummy_path):

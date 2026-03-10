@@ -1069,6 +1069,7 @@ RAGAnything now supports multiple parsers, each with specific advantages:
 - Optimized for Office documents and HTML files
 - Better document structure preservation
 - Native support for multiple Office formats
+- Parser-specific options such as OCR/table settings are configured on the Docling parser path, while text chunking remains controlled by `lightrag_kwargs` just like other parsers
 
 #### PaddleOCR Parser
 - OCR-focused parser for images and PDFs
@@ -1131,6 +1132,18 @@ await rag.process_document_complete(
     display_stats=True,          # Display content statistics
     split_by_character=None,     # Optional character to split text by
     doc_id=None                  # Optional document ID
+)
+
+# Chunking configuration is parser-agnostic, including when parser="docling"
+rag = RAGAnything(
+    config=RAGAnythingConfig(parser="docling"),
+    llm_model_func=llm_model_func,
+    embedding_func=embedding_func,
+    lightrag_kwargs={
+        "chunk_token_size": 1024,
+        "chunk_overlap_token_size": 128,
+        "tokenizer": custom_tokenizer,  # Optional custom chunker/tokenizer setup
+    },
 )
 ```
 
