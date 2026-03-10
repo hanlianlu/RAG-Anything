@@ -1460,9 +1460,8 @@ class DoclingParser(Parser):
         if artifacts_path is not None:
             opts.artifacts_path = artifacts_path
 
-        # ocr_engine, ocr_lang, pdf_backend are currently only honoured
-        # by the CLI path; the Python API requires engine-specific option
-        # classes.  We store them but leave advanced mapping to the user.
+        # ocr_engine, ocr_lang, pdf_backend require engine-specific option
+        # classes in the Python API.  We leave advanced mapping to the user.
 
         return opts
 
@@ -1557,7 +1556,7 @@ class DoclingParser(Parser):
         converter = self._get_converter(**converter_kwargs)
         result = converter.convert(str(input_path))
 
-        # Export to dict – same schema as CLI's ``--to json`` output
+        # Export to dict – Docling's native JSON representation
         doc_dict = result.document.export_to_dict()
 
         # Reuse existing block-conversion logic
