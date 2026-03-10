@@ -1493,7 +1493,11 @@ class DoclingParser(Parser):
             pdf_backend: PDF backend selection
             artifacts_path: Model artifacts directory
             abort_on_error: Abort on first error
-            **kwargs: Additional parameters for subprocess (e.g., env)
+            **kwargs: Only ``env`` (a str→str dict merged into the
+                subprocess environment) is accepted here.  Generic MinerU
+                kwargs (backend, device, …) that arrive via shared
+                call-paths are silently ignored; any other unknown keyword
+                causes a ``TypeError``.
         """
         # Compute output path (directory is created after validation below)
         file_output_dir = Path(output_dir) / file_stem / "docling"

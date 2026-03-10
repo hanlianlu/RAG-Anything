@@ -29,9 +29,8 @@ class ProcessorMixin:
     # Parser-specific cache-relevant kwargs.  Only kwargs that actually affect
     # a parser's output should participate in cache-key generation; including
     # kwargs that a parser silently ignores would cause spurious cache misses.
-    _COMMON_CACHE_KWARGS = {"lang"}
-
-    _MINERU_CACHE_KWARGS = _COMMON_CACHE_KWARGS | {
+    _MINERU_CACHE_KWARGS = {
+        "lang",
         "device",
         "start_page",
         "end_page",
@@ -42,7 +41,7 @@ class ProcessorMixin:
         "vlm_url",
     }
 
-    _DOCLING_CACHE_KWARGS = _COMMON_CACHE_KWARGS | {
+    _DOCLING_CACHE_KWARGS = {
         "tables",
         "table_mode",
         "allow_ocr",

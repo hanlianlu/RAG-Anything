@@ -414,6 +414,7 @@ def test_docling_cache_key_excludes_mineru_kwargs():
         "table_mode": "accurate",
         "ocr_engine": "tesseract",
         # These are MinerU-only and should be excluded for Docling
+        "lang": "en",
         "backend": "pipeline",
         "device": "cpu",
         "source": "huggingface",
@@ -425,6 +426,9 @@ def test_docling_cache_key_excludes_mineru_kwargs():
     }
     relevant = dummy._get_cache_relevant_kwargs(mixed)
     assert relevant == {"table_mode": "accurate", "ocr_engine": "tesseract"}
+    # lang must NOT appear — Docling never uses it, so including it would
+    # cause spurious cache misses when only lang differs.
+    assert "lang" not in relevant
 
 
 def test_mineru_cache_key_excludes_docling_kwargs():
@@ -438,6 +442,7 @@ def test_mineru_cache_key_excludes_docling_kwargs():
     dummy.config = type("Config", (), {"parser": "mineru"})()
 
     mixed = {
+        "lang": "en",
         "backend": "pipeline",
         "device": "cpu",
         # These are Docling-only and should be excluded for MinerU
@@ -448,4 +453,4 @@ def test_mineru_cache_key_excludes_docling_kwargs():
         "pdf_backend": "dlparse_v2",
     }
     relevant = dummy._get_cache_relevant_kwargs(mixed)
-    assert relevant == {"backend": "pipeline", "device": "cpu"}
+    assert relevant == {"lang": "en", "backend": "pipeline", "device": "cpu"}
