@@ -26,6 +26,26 @@ from lightrag.utils import compute_mdhash_id
 class ProcessorMixin:
     """ProcessorMixin class containing document processing functionality for RAGAnything"""
 
+    def _apply_docling_config_defaults(self, kwargs: Dict[str, Any]) -> Dict[str, Any]:
+        """Inject Docling config defaults unless explicitly overridden."""
+        docling_defaults = {}
+        if (
+            getattr(self.config, "docling_table_mode", None)
+            and "table_mode" not in kwargs
+        ):
+            docling_defaults["table_mode"] = self.config.docling_table_mode
+        if (
+            getattr(self.config, "docling_ocr_engine", None)
+            and "ocr_engine" not in kwargs
+        ):
+            docling_defaults["ocr_engine"] = self.config.docling_ocr_engine
+        if (
+            getattr(self.config, "docling_artifacts_path", None)
+            and "artifacts_path" not in kwargs
+        ):
+            docling_defaults["artifacts_path"] = self.config.docling_artifacts_path
+        return {**docling_defaults, **kwargs}
+
     def _get_file_reference(self, file_path: str) -> str:
         """
         Get file reference based on use_full_path configuration.
@@ -345,19 +365,7 @@ class ProcessorMixin:
             if ext in [".pdf"]:
                 self.logger.info("Detected PDF file, using parser for PDF...")
                 if self.config.parser == "docling":
-                    docling_defaults = {}
-                    if self.config.docling_table_mode and "table_mode" not in kwargs:
-                        docling_defaults["table_mode"] = self.config.docling_table_mode
-                    if self.config.docling_ocr_engine and "ocr_engine" not in kwargs:
-                        docling_defaults["ocr_engine"] = self.config.docling_ocr_engine
-                    if (
-                        self.config.docling_artifacts_path
-                        and "artifacts_path" not in kwargs
-                    ):
-                        docling_defaults["artifacts_path"] = (
-                            self.config.docling_artifacts_path
-                        )
-                    kwargs = {**docling_defaults, **kwargs}
+                    kwargs = self._apply_docling_config_defaults(kwargs)
                 content_list = await asyncio.to_thread(
                     doc_parser.parse_pdf,
                     pdf_path=file_path,
@@ -404,19 +412,7 @@ class ProcessorMixin:
             ]:
                 self.logger.info("Detected Office document, using parser for Office...")
                 if self.config.parser == "docling":
-                    docling_defaults = {}
-                    if self.config.docling_table_mode and "table_mode" not in kwargs:
-                        docling_defaults["table_mode"] = self.config.docling_table_mode
-                    if self.config.docling_ocr_engine and "ocr_engine" not in kwargs:
-                        docling_defaults["ocr_engine"] = self.config.docling_ocr_engine
-                    if (
-                        self.config.docling_artifacts_path
-                        and "artifacts_path" not in kwargs
-                    ):
-                        docling_defaults["artifacts_path"] = (
-                            self.config.docling_artifacts_path
-                        )
-                    kwargs = {**docling_defaults, **kwargs}
+                    kwargs = self._apply_docling_config_defaults(kwargs)
                 content_list = await asyncio.to_thread(
                     doc_parser.parse_office_doc,
                     doc_path=file_path,
@@ -426,19 +422,7 @@ class ProcessorMixin:
             elif ext in [".html", ".htm", ".xhtml"]:
                 self.logger.info("Detected HTML document, using parser for HTML...")
                 if self.config.parser == "docling":
-                    docling_defaults = {}
-                    if self.config.docling_table_mode and "table_mode" not in kwargs:
-                        docling_defaults["table_mode"] = self.config.docling_table_mode
-                    if self.config.docling_ocr_engine and "ocr_engine" not in kwargs:
-                        docling_defaults["ocr_engine"] = self.config.docling_ocr_engine
-                    if (
-                        self.config.docling_artifacts_path
-                        and "artifacts_path" not in kwargs
-                    ):
-                        docling_defaults["artifacts_path"] = (
-                            self.config.docling_artifacts_path
-                        )
-                    kwargs = {**docling_defaults, **kwargs}
+                    kwargs = self._apply_docling_config_defaults(kwargs)
                     content_list = await asyncio.to_thread(
                         doc_parser.parse_html,
                         html_path=file_path,
