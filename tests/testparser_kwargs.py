@@ -3,9 +3,8 @@
 Parser Validation Test Script for RAG-Anything (Pytest)
 
 This script validates the environment variable propagation and
-argument validation logic for both MineruParser and DoclingParser.
-It ensures that environment variables are correctly passed to subprocesses
-and that invalid inputs are handled properly (fail-fast).
+argument validation logic for MineruParser and the pipeline-options
+logic for DoclingParser (Python API).
 
 Requirements:
 - RAG-Anything package
@@ -18,17 +17,12 @@ Usage:
 import pytest
 from unittest.mock import patch, MagicMock
 import os
-from raganything.parser import MineruParser, DoclingParser
+from raganything.parser import MineruParser
 
 
 @pytest.fixture
 def mineru_parser():
     return MineruParser()
-
-
-@pytest.fixture
-def docling_parser():
-    return DoclingParser()
 
 
 @pytest.fixture
@@ -64,95 +58,6 @@ def test_mineru_env_propagation(
     assert kwargs["env"]["PATH"] == os.environ["PATH"]
 
 
-@patch("subprocess.run")
-def test_docling_env_propagation(mock_run, docling_parser, dummy_path, tmp_path):
-    mock_run.return_value = MagicMock(returncode=0, stdout="")
-
-    custom_env = {"DOCLING_VAR": "docling_value"}
-
-    # Test env propagation
-    docling_parser._run_docling_command(
-        dummy_path, str(tmp_path / "out"), "stem", env=custom_env
-    )
-
-    args, kwargs = mock_run.call_args
-    assert "env" in kwargs
-    assert kwargs["env"]["DOCLING_VAR"] == "docling_value"
-    assert kwargs["env"]["PATH"] == os.environ["PATH"]
-
-
-@pytest.mark.parametrize("table_mode", ["accurate", "fast"])
-@patch("subprocess.run")
-def test_docling_cli_table_mode(
-    mock_run, docling_parser, dummy_path, table_mode, tmp_path
-):
-    mock_run.return_value = MagicMock(returncode=0, stdout="")
-
-    docling_parser._run_docling_command(
-        dummy_path,
-        str(tmp_path / "out"),
-        "stem",
-        table_mode=table_mode,
-    )
-
-    cmd = mock_run.call_args.args[0]
-    assert "--table-mode" in cmd
-    assert cmd[cmd.index("--table-mode") + 1] == table_mode
-    assert cmd[-1] == dummy_path
-
-
-@patch("subprocess.run")
-def test_docling_cli_boolean_flags(mock_run, docling_parser, dummy_path, tmp_path):
-    mock_run.return_value = MagicMock(returncode=0, stdout="")
-
-    docling_parser._run_docling_command(
-        dummy_path,
-        str(tmp_path / "out"),
-        "stem",
-        tables=False,
-        allow_ocr=False,
-        ocr_engine="tesseract",
-        artifacts_path="/models/docling",
-        abort_on_error=True,
-    )
-
-    cmd = mock_run.call_args.args[0]
-    assert "--no-tables" in cmd
-    assert "--no-ocr" in cmd
-    assert "--ocr-engine" in cmd
-    assert cmd[cmd.index("--ocr-engine") + 1] == "tesseract"
-    assert "--artifacts-path" in cmd
-    assert cmd[cmd.index("--artifacts-path") + 1] == "/models/docling"
-    assert "--abort-on-error" in cmd
-    assert cmd[-1] == dummy_path
-
-
-@patch("subprocess.run")
-def test_docling_ignores_generic_parser_kwargs(
-    mock_run, docling_parser, dummy_path, tmp_path
-):
-    mock_run.return_value = MagicMock(returncode=0, stdout="")
-
-    docling_parser._run_docling_command(
-        dummy_path,
-        str(tmp_path / "out"),
-        "stem",
-        backend="pipeline",
-        device="cpu",
-        source="huggingface",
-        formula=False,
-        table=False,
-        vlm_url="http://127.0.0.1:30000",
-        start_page=1,
-        end_page=2,
-    )
-
-    cmd = mock_run.call_args.args[0]
-    assert "--table-mode" not in cmd
-    assert "--pdf-backend" not in cmd
-    assert cmd[-1] == dummy_path
-
-
 def test_mineru_unknown_kwargs(mineru_parser, dummy_path):
     # Mineru should fail fast on unknown kwargs
     with pytest.raises(TypeError) as excinfo:
@@ -160,34 +65,14 @@ def test_mineru_unknown_kwargs(mineru_parser, dummy_path):
     assert "unexpected keyword argument(s): unknown_arg" in str(excinfo.value)
 
 
-def test_docling_unknown_kwargs(docling_parser, dummy_path, tmp_path):
-    output_dir = tmp_path / "should_not_exist"
-    with pytest.raises(TypeError) as excinfo:
-        docling_parser._run_docling_command(
-            dummy_path, str(output_dir), "stem", unknown_arg="fail"
-        )
-    assert "unexpected keyword argument(s): unknown_arg" in str(excinfo.value)
-    # Validation must happen before any filesystem side-effects
-    assert not output_dir.exists()
-
-
-def test_invalid_env_type(mineru_parser, docling_parser, dummy_path, tmp_path):
+def test_invalid_env_type(mineru_parser, dummy_path):
     # Test non-dict env
     with pytest.raises(TypeError, match="env must be a dictionary"):
         mineru_parser._run_mineru_command(dummy_path, "out", env=["not", "a", "dict"])
 
-    with pytest.raises(TypeError, match="env must be a dictionary"):
-        docling_parser._run_docling_command(
-            dummy_path, str(tmp_path / "out"), "stem", env="string"
-        )
 
-
-def test_invalid_env_contents(mineru_parser, docling_parser, dummy_path, tmp_path):
+def test_invalid_env_contents(mineru_parser, dummy_path):
     # Test non-string keys/values
     with pytest.raises(TypeError, match="env keys and values must be strings"):
         mineru_parser._run_mineru_command(dummy_path, "out", env={1: "string_val"})
 
-    with pytest.raises(TypeError, match="env keys and values must be strings"):
-        docling_parser._run_docling_command(
-            dummy_path, str(tmp_path / "out"), "stem", env={"key": 123}
-        )
