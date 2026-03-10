@@ -309,3 +309,90 @@ async def test_processor_applies_docling_config_defaults_and_overrides(
     assert fake_parser.calls[2][1]["table_mode"] == "fast"
     assert fake_parser.calls[2][1]["ocr_engine"] == "tesseract"
     assert fake_parser.calls[2][1]["artifacts_path"] == "/models/docling"
+
+
+@pytest.mark.asyncio
+async def test_processor_docling_cache_tracks_config_default_changes(
+    monkeypatch, tmp_path
+):
+    import raganything.processor as processor_module
+
+    class FakeLogger:
+        def info(self, *args, **kwargs):
+            pass
+
+        def warning(self, *args, **kwargs):
+            pass
+
+        def error(self, *args, **kwargs):
+            pass
+
+        def debug(self, *args, **kwargs):
+            pass
+
+    class FakeParser:
+        def __init__(self):
+            self.calls = []
+
+        def parse_pdf(self, **kwargs):
+            self.calls.append(kwargs)
+            table_mode = kwargs.get("table_mode", "missing")
+            return [{"type": "text", "text": table_mode, "page_idx": 0}]
+
+    class FakeParseCache:
+        def __init__(self):
+            self.data = {}
+
+        async def get_by_id(self, key):
+            return self.data.get(key)
+
+        async def upsert(self, cache_data):
+            self.data.update(cache_data)
+
+        async def index_done_callback(self):
+            return None
+
+    fake_parser = FakeParser()
+
+    monkeypatch.setattr(processor_module, "get_parser", lambda parser_name: fake_parser)
+
+    class DummyProcessor(processor_module.ProcessorMixin):
+        pass
+
+    dummy = DummyProcessor()
+    dummy.config = type(
+        "Config",
+        (),
+        {
+            "parser": "docling",
+            "parser_output_dir": str(tmp_path / "output"),
+            "parse_method": "auto",
+            "display_content_stats": False,
+            "use_full_path": False,
+            "docling_table_mode": "accurate",
+            "docling_ocr_engine": None,
+            "docling_artifacts_path": None,
+        },
+    )()
+    dummy.logger = FakeLogger()
+    dummy.parse_cache = FakeParseCache()
+
+    monkeypatch.setattr(
+        DummyProcessor,
+        "_generate_content_based_doc_id",
+        lambda self, content_list: f"doc-{content_list[0]['text']}",
+        raising=False,
+    )
+
+    fake_pdf = tmp_path / "sample.pdf"
+    fake_pdf.write_bytes(b"%PDF-1.4\n")
+
+    content_list_1, doc_id_1 = await dummy.parse_document(str(fake_pdf))
+    dummy.config.docling_table_mode = "fast"
+    content_list_2, doc_id_2 = await dummy.parse_document(str(fake_pdf))
+
+    assert content_list_1 == [{"type": "text", "text": "accurate", "page_idx": 0}]
+    assert doc_id_1 == "doc-accurate"
+    assert content_list_2 == [{"type": "text", "text": "fast", "page_idx": 0}]
+    assert doc_id_2 == "doc-fast"
+    assert len(fake_parser.calls) == 2

@@ -1531,6 +1531,18 @@ class DoclingParser(Parser):
         # Handle and validate environment variables
         custom_env = kwargs.pop("env", None)
 
+        for ignored_kwarg in (
+            "backend",
+            "device",
+            "source",
+            "formula",
+            "table",
+            "vlm_url",
+            "start_page",
+            "end_page",
+        ):
+            kwargs.pop(ignored_kwarg, None)
+
         # Validate env if provided
         if custom_env is not None:
             if not isinstance(custom_env, dict):

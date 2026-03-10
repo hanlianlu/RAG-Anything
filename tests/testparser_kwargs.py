@@ -123,6 +123,30 @@ def test_docling_cli_boolean_flags(mock_run, docling_parser, dummy_path):
     assert cmd[-1] == dummy_path
 
 
+@patch("subprocess.run")
+def test_docling_ignores_generic_parser_kwargs(mock_run, docling_parser, dummy_path):
+    mock_run.return_value = MagicMock(returncode=0, stdout="")
+
+    docling_parser._run_docling_command(
+        dummy_path,
+        "out",
+        "stem",
+        backend="pipeline",
+        device="cpu",
+        source="huggingface",
+        formula=False,
+        table=False,
+        vlm_url="http://127.0.0.1:30000",
+        start_page=1,
+        end_page=2,
+    )
+
+    cmd = mock_run.call_args.args[0]
+    assert "--table-mode" not in cmd
+    assert "--pdf-backend" not in cmd
+    assert cmd[-1] == dummy_path
+
+
 def test_mineru_unknown_kwargs(mineru_parser, dummy_path):
     # Mineru should fail fast on unknown kwargs
     with pytest.raises(TypeError) as excinfo:
