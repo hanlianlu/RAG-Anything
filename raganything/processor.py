@@ -365,7 +365,12 @@ class ProcessorMixin:
         try:
             doc_parser = getattr(self, "doc_parser", None)
             if doc_parser is None:
-                doc_parser = get_parser(self.config.parser)
+                use_python_api = getattr(
+                    self.config, "docling_use_python_api", False
+                )
+                doc_parser = get_parser(
+                    self.config.parser, use_python_api=use_python_api
+                )
                 self.doc_parser = doc_parser
 
             # Log parser and method information

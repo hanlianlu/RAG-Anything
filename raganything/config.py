@@ -46,6 +46,13 @@ class RAGAnythingConfig:
     )
     """Path to docling model artifacts for offline use."""
 
+    docling_use_python_api: bool = field(
+        default=get_env_value("DOCLING_USE_PYTHON_API", False, bool)
+    )
+    """Use Docling Python API (DocumentConverter) instead of CLI subprocess.
+    Requires the ``docling`` Python package to be installed.  Benefits include
+    model reuse across calls, finer pipeline control, and no disk I/O round-trip."""
+
     display_content_stats: bool = field(
         default=get_env_value("DISPLAY_CONTENT_STATS", True, bool)
     )
