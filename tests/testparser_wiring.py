@@ -130,3 +130,110 @@ async def test_processor_parse_document_uses_selected_parser(monkeypatch, tmp_pa
     assert content_list_2 == [
         {"type": "text", "text": "parsed by fake parser", "page_idx": 0}
     ]
+
+
+@pytest.mark.asyncio
+async def test_processor_applies_docling_config_defaults_and_overrides(
+    monkeypatch, tmp_path
+):
+    import raganything.processor as processor_module
+
+    class FakeLogger:
+        def info(self, *args, **kwargs):
+            pass
+
+        def warning(self, *args, **kwargs):
+            pass
+
+        def error(self, *args, **kwargs):
+            pass
+
+        def debug(self, *args, **kwargs):
+            pass
+
+    class FakeParser:
+        def __init__(self):
+            self.calls = []
+
+        def parse_pdf(self, **kwargs):
+            self.calls.append(("pdf", kwargs))
+            return [{"type": "text", "text": "pdf parsed", "page_idx": 0}]
+
+        def parse_office_doc(self, **kwargs):
+            self.calls.append(("office", kwargs))
+            return [{"type": "text", "text": "office parsed", "page_idx": 0}]
+
+        def parse_html(self, **kwargs):
+            self.calls.append(("html", kwargs))
+            return [{"type": "text", "text": "html parsed", "page_idx": 0}]
+
+        def parse_document(self, **kwargs):
+            self.calls.append(("generic", kwargs))
+            return [{"type": "text", "text": "generic parsed", "page_idx": 0}]
+
+    fake_parser = FakeParser()
+
+    monkeypatch.setattr(processor_module, "get_parser", lambda parser_name: fake_parser)
+
+    class DummyProcessor(processor_module.ProcessorMixin):
+        pass
+
+    dummy = DummyProcessor()
+    dummy.config = type(
+        "Config",
+        (),
+        {
+            "parser": "docling",
+            "parser_output_dir": str(tmp_path / "output"),
+            "parse_method": "auto",
+            "display_content_stats": False,
+            "use_full_path": False,
+            "docling_table_mode": "accurate",
+            "docling_ocr_engine": "tesseract",
+            "docling_artifacts_path": "/models/docling",
+        },
+    )()
+    dummy.logger = FakeLogger()
+    dummy.parse_cache = None
+
+    async def fake_store_cached_result(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(
+        DummyProcessor,
+        "_store_cached_result",
+        fake_store_cached_result,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        DummyProcessor,
+        "_generate_content_based_doc_id",
+        lambda self, content_list: "doc-fixed",
+        raising=False,
+    )
+
+    fake_pdf = tmp_path / "sample.pdf"
+    fake_pdf.write_bytes(b"%PDF-1.4\n")
+    fake_docx = tmp_path / "sample.docx"
+    fake_docx.write_bytes(b"docx")
+    fake_html = tmp_path / "sample.html"
+    fake_html.write_text("<html></html>", encoding="utf-8")
+
+    await dummy.parse_document(str(fake_pdf))
+    await dummy.parse_document(str(fake_docx))
+    await dummy.parse_document(str(fake_html), table_mode="fast")
+
+    assert fake_parser.calls[0][0] == "pdf"
+    assert fake_parser.calls[0][1]["table_mode"] == "accurate"
+    assert fake_parser.calls[0][1]["ocr_engine"] == "tesseract"
+    assert fake_parser.calls[0][1]["artifacts_path"] == "/models/docling"
+
+    assert fake_parser.calls[1][0] == "office"
+    assert fake_parser.calls[1][1]["table_mode"] == "accurate"
+    assert fake_parser.calls[1][1]["ocr_engine"] == "tesseract"
+    assert fake_parser.calls[1][1]["artifacts_path"] == "/models/docling"
+
+    assert fake_parser.calls[2][0] == "html"
+    assert fake_parser.calls[2][1]["table_mode"] == "fast"
+    assert fake_parser.calls[2][1]["ocr_engine"] == "tesseract"
+    assert fake_parser.calls[2][1]["artifacts_path"] == "/models/docling"
