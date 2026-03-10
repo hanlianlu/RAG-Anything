@@ -26,8 +26,12 @@ from lightrag.utils import compute_mdhash_id
 class ProcessorMixin:
     """ProcessorMixin class containing document processing functionality for RAGAnything"""
 
-    CACHE_RELEVANT_KWARGS = {
-        "lang",
+    # Parser-specific cache-relevant kwargs.  Only kwargs that actually affect
+    # a parser's output should participate in cache-key generation; including
+    # kwargs that a parser silently ignores would cause spurious cache misses.
+    _COMMON_CACHE_KWARGS = {"lang"}
+
+    _MINERU_CACHE_KWARGS = _COMMON_CACHE_KWARGS | {
         "device",
         "start_page",
         "end_page",
@@ -36,6 +40,9 @@ class ProcessorMixin:
         "backend",
         "source",
         "vlm_url",
+    }
+
+    _DOCLING_CACHE_KWARGS = _COMMON_CACHE_KWARGS | {
         "tables",
         "table_mode",
         "allow_ocr",
@@ -45,6 +52,9 @@ class ProcessorMixin:
         "artifacts_path",
         "abort_on_error",
     }
+
+    # Fallback for unknown / PaddleOCR parsers: union of all known kwargs.
+    _ALL_CACHE_KWARGS = _MINERU_CACHE_KWARGS | _DOCLING_CACHE_KWARGS
 
     def _apply_docling_config_defaults(self, kwargs: Dict[str, Any]) -> Dict[str, Any]:
         """Inject Docling config defaults unless explicitly overridden."""
@@ -67,8 +77,20 @@ class ProcessorMixin:
         return {**docling_defaults, **kwargs}
 
     def _get_cache_relevant_kwargs(self, kwargs: Dict[str, Any]) -> Dict[str, Any]:
-        """Return parser kwargs that affect parsing output and cache validity."""
-        return {k: v for k, v in kwargs.items() if k in self.CACHE_RELEVANT_KWARGS}
+        """Return parser kwargs that affect parsing output and cache validity.
+
+        Only kwargs that the active parser actually honours are included so
+        that generic kwargs forwarded by shared call-paths (e.g. ``device``
+        reaching the Docling path) do not cause unnecessary cache misses.
+        """
+        parser = getattr(self.config, "parser", None)
+        if parser == "docling":
+            relevant = self._DOCLING_CACHE_KWARGS
+        elif parser == "mineru":
+            relevant = self._MINERU_CACHE_KWARGS
+        else:
+            relevant = self._ALL_CACHE_KWARGS
+        return {k: v for k, v in kwargs.items() if k in relevant}
 
     def _get_file_reference(self, file_path: str) -> str:
         """

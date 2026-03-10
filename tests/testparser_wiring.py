@@ -396,3 +396,56 @@ async def test_processor_docling_cache_tracks_config_default_changes(
     assert content_list_2 == [{"type": "text", "text": "fast", "page_idx": 0}]
     assert doc_id_2 == "doc-fast"
     assert len(fake_parser.calls) == 2
+
+
+def test_docling_cache_key_excludes_mineru_kwargs():
+    """Generic MinerU kwargs forwarded by shared call-paths must not affect
+    Docling cache keys, since Docling silently ignores them."""
+    import raganything.processor as processor_module
+
+    class DummyProcessor(processor_module.ProcessorMixin):
+        pass
+
+    dummy = DummyProcessor()
+    dummy.config = type("Config", (), {"parser": "docling"})()
+
+    # Only Docling-relevant kwargs should survive filtering
+    mixed = {
+        "table_mode": "accurate",
+        "ocr_engine": "tesseract",
+        # These are MinerU-only and should be excluded for Docling
+        "backend": "pipeline",
+        "device": "cpu",
+        "source": "huggingface",
+        "formula": False,
+        "table": False,
+        "vlm_url": "http://localhost",
+        "start_page": 1,
+        "end_page": 5,
+    }
+    relevant = dummy._get_cache_relevant_kwargs(mixed)
+    assert relevant == {"table_mode": "accurate", "ocr_engine": "tesseract"}
+
+
+def test_mineru_cache_key_excludes_docling_kwargs():
+    """Docling-specific kwargs must not pollute MinerU cache keys."""
+    import raganything.processor as processor_module
+
+    class DummyProcessor(processor_module.ProcessorMixin):
+        pass
+
+    dummy = DummyProcessor()
+    dummy.config = type("Config", (), {"parser": "mineru"})()
+
+    mixed = {
+        "backend": "pipeline",
+        "device": "cpu",
+        # These are Docling-only and should be excluded for MinerU
+        "table_mode": "accurate",
+        "ocr_engine": "tesseract",
+        "tables": True,
+        "allow_ocr": True,
+        "pdf_backend": "dlparse_v2",
+    }
+    relevant = dummy._get_cache_relevant_kwargs(mixed)
+    assert relevant == {"backend": "pipeline", "device": "cpu"}

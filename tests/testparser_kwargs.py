@@ -65,13 +65,15 @@ def test_mineru_env_propagation(
 
 
 @patch("subprocess.run")
-def test_docling_env_propagation(mock_run, docling_parser, dummy_path):
+def test_docling_env_propagation(mock_run, docling_parser, dummy_path, tmp_path):
     mock_run.return_value = MagicMock(returncode=0, stdout="")
 
     custom_env = {"DOCLING_VAR": "docling_value"}
 
     # Test env propagation
-    docling_parser._run_docling_command(dummy_path, "out", "stem", env=custom_env)
+    docling_parser._run_docling_command(
+        dummy_path, str(tmp_path / "out"), "stem", env=custom_env
+    )
 
     args, kwargs = mock_run.call_args
     assert "env" in kwargs
@@ -81,12 +83,14 @@ def test_docling_env_propagation(mock_run, docling_parser, dummy_path):
 
 @pytest.mark.parametrize("table_mode", ["accurate", "fast"])
 @patch("subprocess.run")
-def test_docling_cli_table_mode(mock_run, docling_parser, dummy_path, table_mode):
+def test_docling_cli_table_mode(
+    mock_run, docling_parser, dummy_path, table_mode, tmp_path
+):
     mock_run.return_value = MagicMock(returncode=0, stdout="")
 
     docling_parser._run_docling_command(
         dummy_path,
-        "out",
+        str(tmp_path / "out"),
         "stem",
         table_mode=table_mode,
     )
@@ -98,12 +102,12 @@ def test_docling_cli_table_mode(mock_run, docling_parser, dummy_path, table_mode
 
 
 @patch("subprocess.run")
-def test_docling_cli_boolean_flags(mock_run, docling_parser, dummy_path):
+def test_docling_cli_boolean_flags(mock_run, docling_parser, dummy_path, tmp_path):
     mock_run.return_value = MagicMock(returncode=0, stdout="")
 
     docling_parser._run_docling_command(
         dummy_path,
-        "out",
+        str(tmp_path / "out"),
         "stem",
         tables=False,
         allow_ocr=False,
@@ -124,12 +128,14 @@ def test_docling_cli_boolean_flags(mock_run, docling_parser, dummy_path):
 
 
 @patch("subprocess.run")
-def test_docling_ignores_generic_parser_kwargs(mock_run, docling_parser, dummy_path):
+def test_docling_ignores_generic_parser_kwargs(
+    mock_run, docling_parser, dummy_path, tmp_path
+):
     mock_run.return_value = MagicMock(returncode=0, stdout="")
 
     docling_parser._run_docling_command(
         dummy_path,
-        "out",
+        str(tmp_path / "out"),
         "stem",
         backend="pipeline",
         device="cpu",
@@ -154,27 +160,34 @@ def test_mineru_unknown_kwargs(mineru_parser, dummy_path):
     assert "unexpected keyword argument(s): unknown_arg" in str(excinfo.value)
 
 
-def test_docling_unknown_kwargs(docling_parser, dummy_path):
+def test_docling_unknown_kwargs(docling_parser, dummy_path, tmp_path):
+    output_dir = tmp_path / "should_not_exist"
     with pytest.raises(TypeError) as excinfo:
         docling_parser._run_docling_command(
-            dummy_path, "out", "stem", unknown_arg="fail"
+            dummy_path, str(output_dir), "stem", unknown_arg="fail"
         )
     assert "unexpected keyword argument(s): unknown_arg" in str(excinfo.value)
+    # Validation must happen before any filesystem side-effects
+    assert not output_dir.exists()
 
 
-def test_invalid_env_type(mineru_parser, docling_parser, dummy_path):
+def test_invalid_env_type(mineru_parser, docling_parser, dummy_path, tmp_path):
     # Test non-dict env
     with pytest.raises(TypeError, match="env must be a dictionary"):
         mineru_parser._run_mineru_command(dummy_path, "out", env=["not", "a", "dict"])
 
     with pytest.raises(TypeError, match="env must be a dictionary"):
-        docling_parser._run_docling_command(dummy_path, "out", "stem", env="string")
+        docling_parser._run_docling_command(
+            dummy_path, str(tmp_path / "out"), "stem", env="string"
+        )
 
 
-def test_invalid_env_contents(mineru_parser, docling_parser, dummy_path):
+def test_invalid_env_contents(mineru_parser, docling_parser, dummy_path, tmp_path):
     # Test non-string keys/values
     with pytest.raises(TypeError, match="env keys and values must be strings"):
         mineru_parser._run_mineru_command(dummy_path, "out", env={1: "string_val"})
 
     with pytest.raises(TypeError, match="env keys and values must be strings"):
-        docling_parser._run_docling_command(dummy_path, "out", "stem", env={"key": 123})
+        docling_parser._run_docling_command(
+            dummy_path, str(tmp_path / "out"), "stem", env={"key": 123}
+        )

@@ -1495,8 +1495,40 @@ class DoclingParser(Parser):
             abort_on_error: Abort on first error
             **kwargs: Additional parameters for subprocess (e.g., env)
         """
-        # Create subdirectory structure similar to MinerU
+        # Compute output path (directory is created after validation below)
         file_output_dir = Path(output_dir) / file_stem / "docling"
+
+        # --- Validate kwargs before any filesystem side-effects ---
+        custom_env = kwargs.pop("env", None)
+
+        for ignored_kwarg in (
+            "backend",
+            "device",
+            "source",
+            "formula",
+            "table",
+            "vlm_url",
+            "start_page",
+            "end_page",
+        ):
+            kwargs.pop(ignored_kwarg, None)
+
+        if custom_env is not None:
+            if not isinstance(custom_env, dict):
+                raise TypeError(
+                    f"env must be a dictionary, got {type(custom_env).__name__}"
+                )
+            for k, v in custom_env.items():
+                if not isinstance(k, str) or not isinstance(v, str):
+                    raise TypeError("env keys and values must be strings")
+
+        if kwargs:
+            unsupported = ", ".join(kwargs.keys())
+            raise TypeError(
+                f"DoclingParser._run_docling_command received unexpected keyword argument(s): {unsupported}"
+            )
+
+        # --- All validation passed – safe to create the output directory ---
         file_output_dir.mkdir(parents=True, exist_ok=True)
 
         cmd = [
@@ -1527,37 +1559,6 @@ class DoclingParser(Parser):
             cmd.append("--abort-on-error")
 
         cmd.append(str(input_path))
-
-        # Handle and validate environment variables
-        custom_env = kwargs.pop("env", None)
-
-        for ignored_kwarg in (
-            "backend",
-            "device",
-            "source",
-            "formula",
-            "table",
-            "vlm_url",
-            "start_page",
-            "end_page",
-        ):
-            kwargs.pop(ignored_kwarg, None)
-
-        # Validate env if provided
-        if custom_env is not None:
-            if not isinstance(custom_env, dict):
-                raise TypeError(
-                    f"env must be a dictionary, got {type(custom_env).__name__}"
-                )
-            for k, v in custom_env.items():
-                if not isinstance(k, str) or not isinstance(v, str):
-                    raise TypeError("env keys and values must be strings")
-
-        if kwargs:
-            unsupported = ", ".join(kwargs.keys())
-            raise TypeError(
-                f"DoclingParser._run_docling_command received unexpected keyword argument(s): {unsupported}"
-            )
 
         try:
             # Prepare subprocess parameters to hide console window on Windows
