@@ -239,8 +239,9 @@ class TestConverterManagement:
 
     def test_converter_recreated_different_kwargs(self, docling_parser, docling_mocks):
         docling_parser._get_converter(table_mode="accurate")
+        call_count_after_first = docling_mocks["DocumentConverter"].call_count
         docling_parser._get_converter(table_mode="fast")
-        assert docling_mocks["DocumentConverter"].call_count >= 2
+        assert docling_mocks["DocumentConverter"].call_count == call_count_after_first + 1
 
 
 # ---------------------------------------------------------------------------

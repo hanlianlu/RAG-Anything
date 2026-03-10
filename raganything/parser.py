@@ -1497,12 +1497,7 @@ class DoclingParser(Parser):
         ``_KNOWN_KWARGS`` or ``_IGNORED_KWARGS`` triggers a fail-fast
         error so that typos are caught early.
         """
-        unknown = {
-            k
-            for k in kwargs
-            if k not in DoclingParser._KNOWN_KWARGS
-            and k not in DoclingParser._IGNORED_KWARGS
-        }
+        unknown = set(kwargs) - DoclingParser._KNOWN_KWARGS - DoclingParser._IGNORED_KWARGS
         if unknown:
             unsupported = ", ".join(sorted(unknown))
             raise TypeError(
