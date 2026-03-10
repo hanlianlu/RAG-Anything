@@ -58,6 +58,30 @@ def _make_docling_mocks():
     }
 
 
+def _block_docling_imports(monkeypatch):
+    """Use *monkeypatch* to make all ``docling.*`` imports raise ``ImportError``.
+
+    This works regardless of whether docling is actually installed.
+    Any cached ``docling`` modules are removed from ``sys.modules`` so
+    the parser performs a fresh import attempt.
+    """
+    _real_import = (
+        __builtins__.__import__
+        if hasattr(__builtins__, "__import__")
+        else __import__
+    )
+
+    def _block(name, *args, **kwargs):
+        if name.startswith("docling"):
+            raise ImportError("mocked: docling not installed")
+        return _real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr("builtins.__import__", _block)
+    for key in list(sys.modules):
+        if key == "docling" or key.startswith("docling."):
+            monkeypatch.delitem(sys.modules, key)
+
+
 def _install_docling_mocks(monkeypatch, mocks):
     """Inject mock docling modules into sys.modules via *monkeypatch*.
 
@@ -132,22 +156,7 @@ class TestLazyImport:
 
     def test_import_error_when_docling_missing(self, monkeypatch):
         """When docling is not installed, _ensure_docling_imports raises ImportError."""
-        # Force ImportError by making the import machinery raise when
-        # ``docling.document_converter`` is imported, regardless of
-        # whether docling is actually installed.
-        _real_import = __builtins__.__import__ if hasattr(__builtins__, '__import__') else __import__
-
-        def _block_docling(name, *args, **kwargs):
-            if name.startswith("docling"):
-                raise ImportError("mocked: docling not installed")
-            return _real_import(name, *args, **kwargs)
-
-        monkeypatch.setattr("builtins.__import__", _block_docling)
-        # Remove any cached docling modules so the parser attempts a
-        # fresh import.
-        for key in list(sys.modules):
-            if key == "docling" or key.startswith("docling."):
-                monkeypatch.delitem(sys.modules, key)
+        _block_docling_imports(monkeypatch)
 
         from raganything.parser import DoclingParser
         parser = DoclingParser()
@@ -492,17 +501,7 @@ class TestCheckInstallation:
         assert docling_parser.check_installation() is True
 
     def test_returns_false_when_docling_missing(self, monkeypatch):
-        _real_import = __builtins__.__import__ if hasattr(__builtins__, '__import__') else __import__
-
-        def _block_docling(name, *args, **kwargs):
-            if name.startswith("docling"):
-                raise ImportError("mocked: docling not installed")
-            return _real_import(name, *args, **kwargs)
-
-        monkeypatch.setattr("builtins.__import__", _block_docling)
-        for key in list(sys.modules):
-            if key == "docling" or key.startswith("docling."):
-                monkeypatch.delitem(sys.modules, key)
+        _block_docling_imports(monkeypatch)
 
         from raganything.parser import DoclingParser
         parser = DoclingParser()

@@ -1403,6 +1403,7 @@ class DoclingParser(Parser):
             "ocr_lang",
             "pdf_backend",
             "abort_on_error",
+            "env",
         }
     )
 
@@ -1566,7 +1567,6 @@ class DoclingParser(Parser):
             if v is not None
             and k not in DoclingParser._IGNORED_KWARGS
             and k not in DoclingParser._COMPAT_ONLY_KWARGS
-            and k != "env"
         }
         return json.dumps(filtered, sort_keys=True, default=str)
 
@@ -1643,7 +1643,8 @@ class DoclingParser(Parser):
         converter_kwargs = {
             k: v
             for k, v in kwargs.items()
-            if k not in self._IGNORED_KWARGS and k != "env"
+            if k not in self._IGNORED_KWARGS
+            and k not in self._COMPAT_ONLY_KWARGS
         }
 
         converter = self._get_converter(**converter_kwargs)
