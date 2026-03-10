@@ -26,6 +26,71 @@ from lightrag.utils import compute_mdhash_id
 class ProcessorMixin:
     """ProcessorMixin class containing document processing functionality for RAGAnything"""
 
+    # Parser-specific cache-relevant kwargs.  Only kwargs that actually affect
+    # a parser's output should participate in cache-key generation; including
+    # kwargs that a parser silently ignores would cause spurious cache misses.
+    _MINERU_CACHE_KWARGS = {
+        "lang",
+        "device",
+        "start_page",
+        "end_page",
+        "formula",
+        "table",
+        "backend",
+        "source",
+        "vlm_url",
+    }
+
+    _DOCLING_CACHE_KWARGS = {
+        "tables",
+        "table_mode",
+        "allow_ocr",
+        "ocr_engine",
+        "ocr_lang",
+        "pdf_backend",
+        "artifacts_path",
+        "abort_on_error",
+    }
+
+    # Fallback for unknown / PaddleOCR parsers: union of all known kwargs.
+    _ALL_CACHE_KWARGS = _MINERU_CACHE_KWARGS | _DOCLING_CACHE_KWARGS
+
+    def _apply_docling_config_defaults(self, kwargs: Dict[str, Any]) -> Dict[str, Any]:
+        """Inject Docling config defaults unless explicitly overridden."""
+        docling_defaults = {}
+        if (
+            getattr(self.config, "docling_table_mode", None)
+            and "table_mode" not in kwargs
+        ):
+            docling_defaults["table_mode"] = self.config.docling_table_mode
+        if (
+            getattr(self.config, "docling_ocr_engine", None)
+            and "ocr_engine" not in kwargs
+        ):
+            docling_defaults["ocr_engine"] = self.config.docling_ocr_engine
+        if (
+            getattr(self.config, "docling_artifacts_path", None)
+            and "artifacts_path" not in kwargs
+        ):
+            docling_defaults["artifacts_path"] = self.config.docling_artifacts_path
+        return {**docling_defaults, **kwargs}
+
+    def _get_cache_relevant_kwargs(self, kwargs: Dict[str, Any]) -> Dict[str, Any]:
+        """Return parser kwargs that affect parsing output and cache validity.
+
+        Only kwargs that the active parser actually honours are included so
+        that generic kwargs forwarded by shared call-paths (e.g. ``device``
+        reaching the Docling path) do not cause unnecessary cache misses.
+        """
+        parser = getattr(self.config, "parser", None)
+        if parser == "docling":
+            relevant = self._DOCLING_CACHE_KWARGS
+        elif parser == "mineru":
+            relevant = self._MINERU_CACHE_KWARGS
+        else:
+            relevant = self._ALL_CACHE_KWARGS
+        return {k: v for k, v in kwargs.items() if k in relevant}
+
     def _get_file_reference(self, file_path: str) -> str:
         """
         Get file reference based on use_full_path configuration.
@@ -67,23 +132,7 @@ class ProcessorMixin:
             "parse_method": parse_method or self.config.parse_method,
         }
 
-        # Add relevant kwargs to config
-        relevant_kwargs = {
-            k: v
-            for k, v in kwargs.items()
-            if k
-            in [
-                "lang",
-                "device",
-                "start_page",
-                "end_page",
-                "formula",
-                "table",
-                "backend",
-                "source",
-            ]
-        }
-        config_dict.update(relevant_kwargs)
+        config_dict.update(self._get_cache_relevant_kwargs(kwargs))
 
         # Generate hash from config
         config_str = json.dumps(config_dict, sort_keys=True)
@@ -168,23 +217,7 @@ class ProcessorMixin:
                 "parse_method": parse_method or self.config.parse_method,
             }
 
-            # Add relevant kwargs to current config
-            relevant_kwargs = {
-                k: v
-                for k, v in kwargs.items()
-                if k
-                in [
-                    "lang",
-                    "device",
-                    "start_page",
-                    "end_page",
-                    "formula",
-                    "table",
-                    "backend",
-                    "source",
-                ]
-            }
-            current_config.update(relevant_kwargs)
+            current_config.update(self._get_cache_relevant_kwargs(kwargs))
 
             if cached_config != current_config:
                 self.logger.debug(f"Cache invalid - config changed: {cache_key}")
@@ -242,23 +275,7 @@ class ProcessorMixin:
                 "parse_method": parse_method or self.config.parse_method,
             }
 
-            # Add relevant kwargs to config
-            relevant_kwargs = {
-                k: v
-                for k, v in kwargs.items()
-                if k
-                in [
-                    "lang",
-                    "device",
-                    "start_page",
-                    "end_page",
-                    "formula",
-                    "table",
-                    "backend",
-                    "source",
-                ]
-            }
-            parse_config.update(relevant_kwargs)
+            parse_config.update(self._get_cache_relevant_kwargs(kwargs))
 
             cache_data = {
                 cache_key: {
@@ -312,6 +329,23 @@ class ProcessorMixin:
         if not file_path.exists():
             raise FileNotFoundError(f"File not found: {file_path}")
 
+        # Choose appropriate parsing method based on file extension
+        ext = file_path.suffix.lower()
+
+        if self.config.parser == "docling" and ext in [
+            ".pdf",
+            ".doc",
+            ".docx",
+            ".ppt",
+            ".pptx",
+            ".xls",
+            ".xlsx",
+            ".html",
+            ".htm",
+            ".xhtml",
+        ]:
+            kwargs = self._apply_docling_config_defaults(kwargs)
+
         # Generate cache key based on file and configuration
         cache_key = self._generate_cache_key(file_path, parse_method, **kwargs)
 
@@ -327,9 +361,6 @@ class ProcessorMixin:
                     f"* Total blocks in cached content_list: {len(content_list)}"
                 )
             return content_list, doc_id
-
-        # Choose appropriate parsing method based on file extension
-        ext = file_path.suffix.lower()
 
         try:
             doc_parser = getattr(self, "doc_parser", None)
@@ -387,19 +418,30 @@ class ProcessorMixin:
                 ".pptx",
                 ".xls",
                 ".xlsx",
-                ".html",
-                ".htm",
-                ".xhtml",
             ]:
-                self.logger.info(
-                    "Detected Office or HTML document, using parser for Office/HTML..."
-                )
+                self.logger.info("Detected Office document, using parser for Office...")
                 content_list = await asyncio.to_thread(
                     doc_parser.parse_office_doc,
                     doc_path=file_path,
                     output_dir=output_dir,
                     **kwargs,
                 )
+            elif ext in [".html", ".htm", ".xhtml"]:
+                self.logger.info("Detected HTML document, using parser for HTML...")
+                if self.config.parser == "docling":
+                    content_list = await asyncio.to_thread(
+                        doc_parser.parse_html,
+                        html_path=file_path,
+                        output_dir=output_dir,
+                        **kwargs,
+                    )
+                else:
+                    content_list = await asyncio.to_thread(
+                        doc_parser.parse_office_doc,
+                        doc_path=file_path,
+                        output_dir=output_dir,
+                        **kwargs,
+                    )
             else:
                 # For other or unknown formats, use generic parser
                 self.logger.info(
