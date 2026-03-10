@@ -5,7 +5,7 @@ Contains configuration dataclasses with environment variable support
 """
 
 from dataclasses import dataclass, field
-from typing import List
+from typing import List, Optional
 from lightrag.utils import get_env_value
 
 
@@ -28,6 +28,23 @@ class RAGAnythingConfig:
 
     parser: str = field(default=get_env_value("PARSER", "mineru", str))
     """Parser selection: 'mineru', 'docling', or 'paddleocr'."""
+
+    # Docling-specific Configuration
+    # ---
+    docling_table_mode: Optional[str] = field(
+        default=get_env_value("DOCLING_TABLE_MODE", None, str)
+    )
+    """Table structure model mode for docling parser: 'accurate' or 'fast'. None uses docling default (accurate)."""
+
+    docling_ocr_engine: Optional[str] = field(
+        default=get_env_value("DOCLING_OCR_ENGINE", None, str)
+    )
+    """OCR engine for docling parser: 'auto', 'tesseract', etc. None uses docling default."""
+
+    docling_artifacts_path: Optional[str] = field(
+        default=get_env_value("DOCLING_ARTIFACTS_PATH", None, str)
+    )
+    """Path to docling model artifacts for offline use."""
 
     display_content_stats: bool = field(
         default=get_env_value("DISPLAY_CONTENT_STATS", True, bool)

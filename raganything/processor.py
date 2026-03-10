@@ -344,6 +344,20 @@ class ProcessorMixin:
 
             if ext in [".pdf"]:
                 self.logger.info("Detected PDF file, using parser for PDF...")
+                if self.config.parser == "docling":
+                    docling_defaults = {}
+                    if self.config.docling_table_mode and "table_mode" not in kwargs:
+                        docling_defaults["table_mode"] = self.config.docling_table_mode
+                    if self.config.docling_ocr_engine and "ocr_engine" not in kwargs:
+                        docling_defaults["ocr_engine"] = self.config.docling_ocr_engine
+                    if (
+                        self.config.docling_artifacts_path
+                        and "artifacts_path" not in kwargs
+                    ):
+                        docling_defaults["artifacts_path"] = (
+                            self.config.docling_artifacts_path
+                        )
+                    kwargs = {**docling_defaults, **kwargs}
                 content_list = await asyncio.to_thread(
                     doc_parser.parse_pdf,
                     pdf_path=file_path,
@@ -387,19 +401,57 @@ class ProcessorMixin:
                 ".pptx",
                 ".xls",
                 ".xlsx",
-                ".html",
-                ".htm",
-                ".xhtml",
             ]:
-                self.logger.info(
-                    "Detected Office or HTML document, using parser for Office/HTML..."
-                )
+                self.logger.info("Detected Office document, using parser for Office...")
+                if self.config.parser == "docling":
+                    docling_defaults = {}
+                    if self.config.docling_table_mode and "table_mode" not in kwargs:
+                        docling_defaults["table_mode"] = self.config.docling_table_mode
+                    if self.config.docling_ocr_engine and "ocr_engine" not in kwargs:
+                        docling_defaults["ocr_engine"] = self.config.docling_ocr_engine
+                    if (
+                        self.config.docling_artifacts_path
+                        and "artifacts_path" not in kwargs
+                    ):
+                        docling_defaults["artifacts_path"] = (
+                            self.config.docling_artifacts_path
+                        )
+                    kwargs = {**docling_defaults, **kwargs}
                 content_list = await asyncio.to_thread(
                     doc_parser.parse_office_doc,
                     doc_path=file_path,
                     output_dir=output_dir,
                     **kwargs,
                 )
+            elif ext in [".html", ".htm", ".xhtml"]:
+                self.logger.info("Detected HTML document, using parser for HTML...")
+                if self.config.parser == "docling":
+                    docling_defaults = {}
+                    if self.config.docling_table_mode and "table_mode" not in kwargs:
+                        docling_defaults["table_mode"] = self.config.docling_table_mode
+                    if self.config.docling_ocr_engine and "ocr_engine" not in kwargs:
+                        docling_defaults["ocr_engine"] = self.config.docling_ocr_engine
+                    if (
+                        self.config.docling_artifacts_path
+                        and "artifacts_path" not in kwargs
+                    ):
+                        docling_defaults["artifacts_path"] = (
+                            self.config.docling_artifacts_path
+                        )
+                    kwargs = {**docling_defaults, **kwargs}
+                    content_list = await asyncio.to_thread(
+                        doc_parser.parse_html,
+                        html_path=file_path,
+                        output_dir=output_dir,
+                        **kwargs,
+                    )
+                else:
+                    content_list = await asyncio.to_thread(
+                        doc_parser.parse_office_doc,
+                        doc_path=file_path,
+                        output_dir=output_dir,
+                        **kwargs,
+                    )
             else:
                 # For other or unknown formats, use generic parser
                 self.logger.info(
