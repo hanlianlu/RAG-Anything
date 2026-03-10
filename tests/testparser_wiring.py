@@ -42,6 +42,78 @@ def test_raganything_initializes_selected_parser(monkeypatch, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_docling_parser_keeps_lightrag_chunker_overrides(monkeypatch, tmp_path):
+    pytest.importorskip("lightrag")
+
+    import raganything.raganything as rag_module
+    from raganything.config import RAGAnythingConfig
+
+    class StubParser:
+        def check_installation(self):
+            return True
+
+    captured = {}
+
+    class StubParseCache:
+        async def initialize(self):
+            return None
+
+    class StubLightRAG:
+        def __init__(self, **kwargs):
+            captured["lightrag_kwargs"] = kwargs
+            self.workspace = object()
+            self.tokenizer = object()
+            self.key_string_value_json_storage_cls = lambda **_: StubParseCache()
+
+        async def initialize_storages(self):
+            return None
+
+    async def fake_initialize_pipeline_status():
+        return None
+
+    monkeypatch.setattr(rag_module, "LightRAG", StubLightRAG)
+    monkeypatch.setattr(rag_module, "get_parser", lambda parser_name: StubParser())
+    monkeypatch.setattr(rag_module.atexit, "register", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        rag_module.RAGAnything,
+        "_initialize_processors",
+        lambda self: None,
+        raising=False,
+    )
+
+    from lightrag.kg import shared_storage
+
+    monkeypatch.setattr(
+        shared_storage,
+        "initialize_pipeline_status",
+        fake_initialize_pipeline_status,
+    )
+
+    config = RAGAnythingConfig(
+        working_dir=str(tmp_path / "rag_workdir"),
+        parser="docling",
+    )
+    rag = rag_module.RAGAnything(
+        config=config,
+        llm_model_func=lambda *args, **kwargs: None,
+        embedding_func=lambda *args, **kwargs: None,
+        lightrag_kwargs={
+            "chunk_token_size": 1024,
+            "chunk_overlap_token_size": 128,
+            "tokenizer": "custom-tokenizer",
+        },
+    )
+
+    result = await rag._ensure_lightrag_initialized()
+
+    assert result == {"success": True}
+    assert captured["lightrag_kwargs"]["working_dir"] == str(tmp_path / "rag_workdir")
+    assert captured["lightrag_kwargs"]["chunk_token_size"] == 1024
+    assert captured["lightrag_kwargs"]["chunk_overlap_token_size"] == 128
+    assert captured["lightrag_kwargs"]["tokenizer"] == "custom-tokenizer"
+
+
+@pytest.mark.asyncio
 async def test_processor_parse_document_uses_selected_parser(monkeypatch, tmp_path):
     import raganything.processor as processor_module
 

@@ -1050,6 +1050,7 @@ RAGAnything 现在支持多种解析器，每种解析器都有其特定的优�
 - 专门优化Office文档和HTML文件的解析
 - 更好的文档结构保持
 - 原生支持多种Office格式
+- OCR、表格等解析器参数走 Docling 解析链路，而文本分块仍然和其他解析器一样由 `lightrag_kwargs` 控制
 
 ### MinerU配置
 
@@ -1097,6 +1098,18 @@ await rag.process_document_complete(
     display_stats=True,          # 显示内容统计信息
     split_by_character=None,     # 可选的文本分割字符
     doc_id=None                  # 可选的文档ID
+)
+
+# 分块配置与解析器无关，parser="docling" 时同样通过 lightrag_kwargs 传入
+rag = RAGAnything(
+    config=RAGAnythingConfig(parser="docling"),
+    llm_model_func=llm_model_func,
+    embedding_func=embedding_func,
+    lightrag_kwargs={
+        "chunk_token_size": 1024,
+        "chunk_overlap_token_size": 128,
+        "tokenizer": custom_tokenizer,  # 可选，自定义 tokenizer / chunker 设置
+    },
 )
 ```
 
