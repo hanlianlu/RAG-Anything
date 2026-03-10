@@ -1437,8 +1437,17 @@ class DoclingParser(Parser):
             output_dir: Output directory path
             lang: Ignored by Docling (kept for API parity with MinerU).
                 Use ``ocr_lang`` in **kwargs for OCR language selection.
-            **kwargs: Additional parameters for docling command
+            **kwargs: Additional Docling CLI options, forwarded to the underlying
+                parser. Supported options include:
 
+                - ``table_mode``: Table extraction mode.
+                - ``tables``: Whether to extract tables.
+                - ``allow_ocr``: Enable OCR when needed.
+                - ``ocr_engine``: OCR engine to use.
+                - ``ocr_lang``: OCR language code.
+                - ``pdf_backend``: PDF backend for Docling.
+                - ``artifacts_path``: Path to store Docling artifacts.
+                - ``abort_on_error``: Whether to abort on first error.
         Returns:
             List[Dict[str, Any]]: List of content blocks
         """
