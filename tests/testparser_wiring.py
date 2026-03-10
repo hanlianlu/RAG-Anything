@@ -145,7 +145,7 @@ async def test_processor_parse_document_uses_selected_parser(monkeypatch, tmp_pa
 
     selected = {"calls": 0}
 
-    def fake_get_parser(parser_name, *, use_python_api=False):
+    def fake_get_parser(parser_name):
         selected["parser_name"] = parser_name
         selected["calls"] += 1
         return FakeParser()
@@ -245,7 +245,7 @@ async def test_processor_applies_docling_config_defaults_and_overrides(
 
     fake_parser = FakeParser()
 
-    monkeypatch.setattr(processor_module, "get_parser", lambda parser_name, *, use_python_api=False: fake_parser)
+    monkeypatch.setattr(processor_module, "get_parser", lambda parser_name: fake_parser)
 
     class DummyProcessor(processor_module.ProcessorMixin):
         pass
@@ -354,7 +354,7 @@ async def test_processor_docling_cache_tracks_config_default_changes(
 
     fake_parser = FakeParser()
 
-    monkeypatch.setattr(processor_module, "get_parser", lambda parser_name, *, use_python_api=False: fake_parser)
+    monkeypatch.setattr(processor_module, "get_parser", lambda parser_name: fake_parser)
 
     class DummyProcessor(processor_module.ProcessorMixin):
         pass

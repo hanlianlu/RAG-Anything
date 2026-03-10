@@ -1344,25 +1344,16 @@ class DoclingParser(Parser):
     """
     Docling document parsing utility class.
 
-    Specialized in parsing Office documents and HTML files, converting the content
-    into structured data and generating markdown and JSON output.
-
-    Supports two execution modes:
-
-    * **CLI mode** (default): invokes the ``docling`` command-line tool via
-      :mod:`subprocess`.  This is the original behaviour and requires the
-      ``docling`` CLI to be on ``PATH``.
-    * **Python API mode** (``use_python_api=True``): uses the
-      ``docling.document_converter.DocumentConverter`` directly.  Benefits
-      include model reuse across calls, finer-grained pipeline control, no
-      disk I/O round-trip, and native Python error handling.  Requires the
-      ``docling`` Python package to be installed.
+    Uses the ``docling.document_converter.DocumentConverter`` Python API
+    directly.  Benefits include model reuse across calls, finer-grained
+    pipeline control, no disk I/O round-trip, and native Python error
+    handling.  Requires the ``docling`` Python package to be installed.
     """
 
     # Define Docling-specific formats
     HTML_FORMATS = {".html", ".htm", ".xhtml"}
 
-    # MinerU-specific kwargs silently ignored in both CLI and API paths
+    # MinerU-specific kwargs silently ignored
     _IGNORED_KWARGS = frozenset(
         {
             "backend",
@@ -1376,17 +1367,13 @@ class DoclingParser(Parser):
         }
     )
 
-    def __init__(self, use_python_api: bool = False) -> None:
+    def __init__(self) -> None:
         """Initialize DoclingParser.
 
-        Args:
-            use_python_api: When *True* use the Docling Python API
-                (``DocumentConverter``) instead of the CLI subprocess.
-                The converter instance is lazily created and reused across
-                calls for efficient model loading.
+        The converter instance is lazily created and reused across calls
+        for efficient model loading.
         """
         super().__init__()
-        self._use_python_api = use_python_api
         self._converter = None
         self._converter_config_key: Optional[str] = None
 
@@ -1601,8 +1588,7 @@ class DoclingParser(Parser):
             method: Parsing method (auto, txt, ocr)
             lang: Ignored by Docling (kept for API parity with MinerU).
                 Use ``ocr_lang`` in **kwargs for OCR language selection.
-            **kwargs: Docling options (CLI flags or Python API pipeline
-                options depending on mode):
+            **kwargs: Docling Python API pipeline options:
                 - table_mode (str): "accurate" or "fast"
                 - tables (bool): Enable/disable table extraction
                 - allow_ocr (bool): Enable/disable OCR
@@ -1621,35 +1607,9 @@ class DoclingParser(Parser):
             if not pdf_path.exists():
                 raise FileNotFoundError(f"PDF file does not exist: {pdf_path}")
 
-            if self._use_python_api:
-                return self._parse_with_python_api(
-                    pdf_path, output_dir=output_dir, **kwargs
-                )
-
-            name_without_suff = pdf_path.stem
-
-            # Prepare output directory — use unique subdirectory to prevent
-            # same-name file collisions when output_dir is shared (#51)
-            if output_dir:
-                base_output_dir = self._unique_output_dir(output_dir, pdf_path)
-            else:
-                base_output_dir = pdf_path.parent / "docling_output"
-
-            base_output_dir.mkdir(parents=True, exist_ok=True)
-
-            # Run docling command
-            self._run_docling_command(
-                input_path=pdf_path,
-                output_dir=base_output_dir,
-                file_stem=name_without_suff,
-                **kwargs,
+            return self._parse_with_python_api(
+                pdf_path, output_dir=output_dir, **kwargs
             )
-
-            # Read the generated output files
-            content_list, _ = self._read_output_files(
-                base_output_dir, name_without_suff
-            )
-            return content_list
 
         except Exception as e:
             self.logger.error(f"Error in parse_pdf: {str(e)}")
@@ -1672,8 +1632,8 @@ class DoclingParser(Parser):
             output_dir: Output directory path
             lang: Ignored by Docling (kept for API parity with MinerU).
                 Use ``ocr_lang`` in **kwargs for OCR language selection.
-            **kwargs: Additional Docling CLI options, forwarded to the underlying
-                parser. Supported options include:
+            **kwargs: Docling Python API pipeline options, forwarded to the
+                underlying parser. Supported options include:
 
                 - ``table_mode``: Table extraction mode.
                 - ``tables``: Whether to extract tables.
@@ -1707,194 +1667,6 @@ class DoclingParser(Parser):
                 f"Docling only supports PDF files, Office formats ({', '.join(self.OFFICE_FORMATS)}) "
                 f"and HTML formats ({', '.join(self.HTML_FORMATS)})"
             )
-
-    def _run_docling_command(
-        self,
-        input_path: Union[str, Path],
-        output_dir: Union[str, Path],
-        file_stem: str,
-        *,
-        tables: Optional[bool] = None,
-        table_mode: Optional[str] = None,
-        allow_ocr: Optional[bool] = None,
-        ocr_engine: Optional[str] = None,
-        ocr_lang: Optional[str] = None,
-        pdf_backend: Optional[str] = None,
-        artifacts_path: Optional[str] = None,
-        abort_on_error: bool = False,
-        **kwargs,
-    ) -> None:
-        """
-        Run docling command line tool
-
-        Args:
-            input_path: Path to input file or directory
-            output_dir: Output directory path
-            file_stem: File stem for creating subdirectory
-            tables: Enable or disable table extraction
-            table_mode: Table extraction mode
-            allow_ocr: Enable or disable OCR
-            ocr_engine: OCR engine selection
-            ocr_lang: OCR languages
-            pdf_backend: PDF backend selection
-            artifacts_path: Model artifacts directory
-            abort_on_error: Abort on first error
-            **kwargs: Only ``env`` (a str→str dict merged into the
-                subprocess environment) is accepted here.  Generic MinerU
-                kwargs (backend, device, …) that arrive via shared
-                call-paths are silently ignored; any other unknown keyword
-                causes a ``TypeError``.
-        """
-        # Compute output path (directory is created after validation below)
-        file_output_dir = Path(output_dir) / file_stem / "docling"
-
-        # --- Validate kwargs before any filesystem side-effects ---
-        custom_env = kwargs.pop("env", None)
-
-        for ignored_kwarg in (
-            "backend",
-            "device",
-            "source",
-            "formula",
-            "table",
-            "vlm_url",
-            "start_page",
-            "end_page",
-        ):
-            kwargs.pop(ignored_kwarg, None)
-
-        if custom_env is not None:
-            if not isinstance(custom_env, dict):
-                raise TypeError(
-                    f"env must be a dictionary, got {type(custom_env).__name__}"
-                )
-            for k, v in custom_env.items():
-                if not isinstance(k, str) or not isinstance(v, str):
-                    raise TypeError("env keys and values must be strings")
-
-        if kwargs:
-            unsupported = ", ".join(kwargs.keys())
-            raise TypeError(
-                f"DoclingParser._run_docling_command received unexpected keyword argument(s): {unsupported}"
-            )
-
-        # --- All validation passed – safe to create the output directory ---
-        file_output_dir.mkdir(parents=True, exist_ok=True)
-
-        cmd = [
-            "docling",
-            "--output",
-            str(file_output_dir),
-            "--to",
-            "json",
-            "--to",
-            "md",
-        ]
-
-        if tables is not None:
-            cmd.append("--tables" if tables else "--no-tables")
-        if table_mode:
-            cmd.extend(["--table-mode", table_mode])
-        if allow_ocr is not None:
-            cmd.append("--allow-ocr" if allow_ocr else "--no-ocr")
-        if ocr_engine:
-            cmd.extend(["--ocr-engine", ocr_engine])
-        if ocr_lang:
-            cmd.extend(["--ocr-lang", ocr_lang])
-        if pdf_backend:
-            cmd.extend(["--pdf-backend", pdf_backend])
-        if artifacts_path:
-            cmd.extend(["--artifacts-path", artifacts_path])
-        if abort_on_error:
-            cmd.append("--abort-on-error")
-
-        cmd.append(str(input_path))
-
-        try:
-            # Prepare subprocess parameters to hide console window on Windows
-            import platform
-
-            env = None
-            if custom_env:
-                env = os.environ.copy()
-                env.update(custom_env)
-
-            docling_subprocess_kwargs = {
-                "capture_output": True,
-                "text": True,
-                "check": True,
-                "encoding": "utf-8",
-                "errors": "ignore",
-                "env": env,
-            }
-
-            # Hide console window on Windows
-            if platform.system() == "Windows":
-                docling_subprocess_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
-
-            result = subprocess.run(cmd, **docling_subprocess_kwargs)
-            self.logger.info("Docling command executed successfully")
-            if result.stdout:
-                self.logger.debug(f"JSON and Markdown cmd output: {result.stdout}")
-        except subprocess.CalledProcessError as e:
-            self.logger.error(f"Error running docling command: {e}")
-            if e.stderr:
-                self.logger.error(f"Error details: {e.stderr}")
-            raise
-        except FileNotFoundError:
-            raise RuntimeError(
-                "docling command not found. Please ensure Docling is properly installed."
-            )
-
-    def _read_output_files(
-        self,
-        output_dir: Path,
-        file_stem: str,
-    ) -> Tuple[List[Dict[str, Any]], str]:
-        """
-        Read the output files generated by docling and convert to MinerU format
-
-        Args:
-            output_dir: Output directory
-            file_stem: File name without extension
-
-        Returns:
-            Tuple containing (content list JSON, Markdown text)
-        """
-        # Use subdirectory structure similar to MinerU
-        file_subdir = output_dir / file_stem / "docling"
-        md_file = file_subdir / f"{file_stem}.md"
-        json_file = file_subdir / f"{file_stem}.json"
-
-        # Read markdown content
-        md_content = ""
-        if md_file.exists():
-            try:
-                with open(md_file, "r", encoding="utf-8") as f:
-                    md_content = f.read()
-            except Exception as e:
-                self.logger.warning(f"Could not read markdown file {md_file}: {e}")
-
-        # Read JSON content and convert format
-        content_list = []
-        if json_file.exists():
-            try:
-                with open(json_file, "r", encoding="utf-8") as f:
-                    docling_content = json.load(f)
-                    # Convert docling format to minerU format
-                    content_list = self.read_from_block_recursive(
-                        docling_content["body"],
-                        "body",
-                        file_subdir,
-                        0,
-                        "0",
-                        docling_content,
-                    )
-            except Exception as e:
-                self.logger.warning(
-                    f"Could not read or convert JSON file {json_file}: {e}"
-                )
-        return content_list, md_content
 
     def read_from_block_recursive(
         self,
@@ -2011,8 +1783,7 @@ class DoclingParser(Parser):
             output_dir: Output directory path
             lang: Ignored by Docling (kept for API parity with MinerU).
                 Use ``ocr_lang`` in **kwargs for OCR language selection.
-            **kwargs: Docling options (CLI flags or Python API pipeline
-                options depending on mode):
+            **kwargs: Docling Python API pipeline options:
                 - table_mode (str): "accurate" or "fast"
                 - tables (bool): Enable/disable table extraction
                 - allow_ocr (bool): Enable/disable OCR
@@ -2034,35 +1805,9 @@ class DoclingParser(Parser):
             if doc_path.suffix.lower() not in self.OFFICE_FORMATS:
                 raise ValueError(f"Unsupported office format: {doc_path.suffix}")
 
-            if self._use_python_api:
-                return self._parse_with_python_api(
-                    doc_path, output_dir=output_dir, **kwargs
-                )
-
-            name_without_suff = doc_path.stem
-
-            # Prepare output directory — use unique subdirectory to prevent
-            # same-name file collisions when output_dir is shared (#51)
-            if output_dir:
-                base_output_dir = self._unique_output_dir(output_dir, doc_path)
-            else:
-                base_output_dir = doc_path.parent / "docling_output"
-
-            base_output_dir.mkdir(parents=True, exist_ok=True)
-
-            # Run docling command
-            self._run_docling_command(
-                input_path=doc_path,
-                output_dir=base_output_dir,
-                file_stem=name_without_suff,
-                **kwargs,
+            return self._parse_with_python_api(
+                doc_path, output_dir=output_dir, **kwargs
             )
-
-            # Read the generated output files
-            content_list, _ = self._read_output_files(
-                base_output_dir, name_without_suff
-            )
-            return content_list
 
         except Exception as e:
             self.logger.error(f"Error in parse_office_doc: {str(e)}")
@@ -2085,8 +1830,7 @@ class DoclingParser(Parser):
             output_dir: Output directory path
             lang: Ignored by Docling (kept for API parity with MinerU).
                 Use ``ocr_lang`` in **kwargs for OCR language selection.
-            **kwargs: Docling options (CLI flags or Python API pipeline
-                options depending on mode):
+            **kwargs: Docling Python API pipeline options:
                 - table_mode (str): "accurate" or "fast"
                 - tables (bool): Enable/disable table extraction
                 - allow_ocr (bool): Enable/disable OCR
@@ -2108,35 +1852,9 @@ class DoclingParser(Parser):
             if html_path.suffix.lower() not in self.HTML_FORMATS:
                 raise ValueError(f"Unsupported HTML format: {html_path.suffix}")
 
-            if self._use_python_api:
-                return self._parse_with_python_api(
-                    html_path, output_dir=output_dir, **kwargs
-                )
-
-            name_without_suff = html_path.stem
-
-            # Prepare output directory — use unique subdirectory to prevent
-            # same-name file collisions when output_dir is shared (#51)
-            if output_dir:
-                base_output_dir = self._unique_output_dir(output_dir, html_path)
-            else:
-                base_output_dir = html_path.parent / "docling_output"
-
-            base_output_dir.mkdir(parents=True, exist_ok=True)
-
-            # Run docling command
-            self._run_docling_command(
-                input_path=html_path,
-                output_dir=base_output_dir,
-                file_stem=name_without_suff,
-                **kwargs,
+            return self._parse_with_python_api(
+                html_path, output_dir=output_dir, **kwargs
             )
-
-            # Read the generated output files
-            content_list, _ = self._read_output_files(
-                base_output_dir, name_without_suff
-            )
-            return content_list
 
         except Exception as e:
             self.logger.error(f"Error in parse_html: {str(e)}")
@@ -2146,46 +1864,18 @@ class DoclingParser(Parser):
         """
         Check if Docling is properly installed.
 
-        In Python API mode, checks that the ``docling`` package can be
-        imported.  In CLI mode, checks that the ``docling`` command is
-        available on ``PATH``.
+        Checks that the ``docling`` Python package can be imported.
 
         Returns:
             bool: True if installation is valid, False otherwise
         """
-        if self._use_python_api:
-            try:
-                self._ensure_docling_imports()
-                return True
-            except ImportError:
-                self.logger.debug(
-                    "Docling Python package is not installed. "
-                    "Install with: pip install docling"
-                )
-                return False
         try:
-            # Prepare subprocess parameters to hide console window on Windows
-            import platform
-
-            subprocess_kwargs = {
-                "capture_output": True,
-                "text": True,
-                "check": True,
-                "encoding": "utf-8",
-                "errors": "ignore",
-            }
-
-            # Hide console window on Windows
-            if platform.system() == "Windows":
-                subprocess_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
-
-            result = subprocess.run(["docling", "--version"], **subprocess_kwargs)
-            self.logger.debug(f"Docling version: {result.stdout.strip()}")
+            self._ensure_docling_imports()
             return True
-        except (subprocess.CalledProcessError, FileNotFoundError):
+        except ImportError:
             self.logger.debug(
-                "Docling is not properly installed. "
-                "Please ensure it is installed correctly."
+                "Docling Python package is not installed. "
+                "Install with: pip install docling"
             )
             return False
 
@@ -2518,20 +2208,17 @@ class PaddleOCRParser(Parser):
 SUPPORTED_PARSERS = ("mineru", "docling", "paddleocr")
 
 
-def get_parser(parser_type: str, *, use_python_api: bool = False) -> Parser:
+def get_parser(parser_type: str) -> Parser:
     """Return a parser instance for the given *parser_type*.
 
     Args:
         parser_type: One of ``"mineru"``, ``"docling"``, or ``"paddleocr"``.
-        use_python_api: Only relevant for the Docling parser.  When *True*
-            the returned :class:`DoclingParser` will use the Python API
-            (``DocumentConverter``) instead of the CLI subprocess.
     """
     parser_name = (parser_type or "mineru").strip().lower()
     if parser_name == "mineru":
         return MineruParser()
     if parser_name == "docling":
-        return DoclingParser(use_python_api=use_python_api)
+        return DoclingParser()
     if parser_name == "paddleocr":
         return PaddleOCRParser()
     raise ValueError(
