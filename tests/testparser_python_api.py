@@ -273,16 +273,13 @@ class TestRoutingParsePdf:
         fake_pdf.write_bytes(b"%PDF-1.4\n")
 
         with patch.object(docling_parser_api, '_parse_with_python_api') as mock_api:
-            mock_api.return_value = []
-            try:
-                docling_parser_api.parse_pdf(
-                    fake_pdf,
-                    output_dir=str(tmp_path),
-                    table_mode="accurate",
-                    allow_ocr=False,
-                )
-            except Exception:
-                pass
+            mock_api.return_value = [{"type": "text", "text": "ok", "page_idx": 0}]
+            docling_parser_api.parse_pdf(
+                fake_pdf,
+                output_dir=str(tmp_path),
+                table_mode="accurate",
+                allow_ocr=False,
+            )
 
         call_kwargs = mock_api.call_args
         assert call_kwargs is not None
