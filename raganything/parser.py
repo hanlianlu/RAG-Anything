@@ -1371,7 +1371,15 @@ class DoclingParser(Parser):
             output_dir: Output directory path
             method: Parsing method (auto, txt, ocr)
             lang: Document language for OCR optimization
-            **kwargs: Additional parameters for docling command
+            **kwargs: Docling CLI options:
+                - table_mode (str): "accurate" or "fast"
+                - tables (bool): Enable/disable table extraction
+                - allow_ocr (bool): Enable/disable OCR
+                - ocr_engine (str): OCR engine selection
+                - ocr_lang (str): Comma-separated OCR languages
+                - pdf_backend (str): PDF backend to use
+                - artifacts_path (str): Model artifacts directory
+                - abort_on_error (bool): Abort on first error
 
         Returns:
             List[Dict[str, Any]]: List of content blocks
@@ -1459,6 +1467,15 @@ class DoclingParser(Parser):
         input_path: Union[str, Path],
         output_dir: Union[str, Path],
         file_stem: str,
+        *,
+        tables: Optional[bool] = None,
+        table_mode: Optional[str] = None,
+        allow_ocr: Optional[bool] = None,
+        ocr_engine: Optional[str] = None,
+        ocr_lang: Optional[str] = None,
+        pdf_backend: Optional[str] = None,
+        artifacts_path: Optional[str] = None,
+        abort_on_error: bool = False,
         **kwargs,
     ) -> None:
         """
@@ -1468,10 +1485,50 @@ class DoclingParser(Parser):
             input_path: Path to input file or directory
             output_dir: Output directory path
             file_stem: File stem for creating subdirectory
-            **kwargs: Additional parameters for docling command
+            tables: Enable or disable table extraction
+            table_mode: Table extraction mode
+            allow_ocr: Enable or disable OCR
+            ocr_engine: OCR engine selection
+            ocr_lang: OCR languages
+            pdf_backend: PDF backend selection
+            artifacts_path: Model artifacts directory
+            abort_on_error: Abort on first error
+            **kwargs: Additional parameters for subprocess (e.g., env)
         """
-        # Create subdirectory structure similar to MinerU
+        # Compute output path (directory is created after validation below)
         file_output_dir = Path(output_dir) / file_stem / "docling"
+
+        # --- Validate kwargs before any filesystem side-effects ---
+        custom_env = kwargs.pop("env", None)
+
+        for ignored_kwarg in (
+            "backend",
+            "device",
+            "source",
+            "formula",
+            "table",
+            "vlm_url",
+            "start_page",
+            "end_page",
+        ):
+            kwargs.pop(ignored_kwarg, None)
+
+        if custom_env is not None:
+            if not isinstance(custom_env, dict):
+                raise TypeError(
+                    f"env must be a dictionary, got {type(custom_env).__name__}"
+                )
+            for k, v in custom_env.items():
+                if not isinstance(k, str) or not isinstance(v, str):
+                    raise TypeError("env keys and values must be strings")
+
+        if kwargs:
+            unsupported = ", ".join(kwargs.keys())
+            raise TypeError(
+                f"DoclingParser._run_docling_command received unexpected keyword argument(s): {unsupported}"
+            )
+
+        # --- All validation passed – safe to create the output directory ---
         file_output_dir.mkdir(parents=True, exist_ok=True)
 
         cmd = [
@@ -1482,21 +1539,26 @@ class DoclingParser(Parser):
             "json",
             "--to",
             "md",
-            str(input_path),
         ]
 
-        # Handle and validate environment variables
-        custom_env = kwargs.pop("env", None)
+        if tables is not None:
+            cmd.append("--tables" if tables else "--no-tables")
+        if table_mode:
+            cmd.extend(["--table-mode", table_mode])
+        if allow_ocr is not None:
+            cmd.append("--allow-ocr" if allow_ocr else "--no-ocr")
+        if ocr_engine:
+            cmd.extend(["--ocr-engine", ocr_engine])
+        if ocr_lang:
+            cmd.extend(["--ocr-lang", ocr_lang])
+        if pdf_backend:
+            cmd.extend(["--pdf-backend", pdf_backend])
+        if artifacts_path:
+            cmd.extend(["--artifacts-path", artifacts_path])
+        if abort_on_error:
+            cmd.append("--abort-on-error")
 
-        # Validate env if provided
-        if custom_env is not None:
-            if not isinstance(custom_env, dict):
-                raise TypeError(
-                    f"env must be a dictionary, got {type(custom_env).__name__}"
-                )
-            for k, v in custom_env.items():
-                if not isinstance(k, str) or not isinstance(v, str):
-                    raise TypeError("env keys and values must be strings")
+        cmd.append(str(input_path))
 
         try:
             # Prepare subprocess parameters to hide console window on Windows
@@ -1698,7 +1760,15 @@ class DoclingParser(Parser):
             doc_path: Path to the document file
             output_dir: Output directory path
             lang: Document language for optimization
-            **kwargs: Additional parameters for docling command
+            **kwargs: Docling CLI options:
+                - table_mode (str): "accurate" or "fast"
+                - tables (bool): Enable/disable table extraction
+                - allow_ocr (bool): Enable/disable OCR
+                - ocr_engine (str): OCR engine selection
+                - ocr_lang (str): Comma-separated OCR languages
+                - pdf_backend (str): PDF backend to use
+                - artifacts_path (str): Model artifacts directory
+                - abort_on_error (bool): Abort on first error
 
         Returns:
             List[Dict[str, Any]]: List of content blocks
@@ -1757,7 +1827,15 @@ class DoclingParser(Parser):
             html_path: Path to the HTML file
             output_dir: Output directory path
             lang: Document language for optimization
-            **kwargs: Additional parameters for docling command
+            **kwargs: Docling CLI options:
+                - table_mode (str): "accurate" or "fast"
+                - tables (bool): Enable/disable table extraction
+                - allow_ocr (bool): Enable/disable OCR
+                - ocr_engine (str): OCR engine selection
+                - ocr_lang (str): Comma-separated OCR languages
+                - pdf_backend (str): PDF backend to use
+                - artifacts_path (str): Model artifacts directory
+                - abort_on_error (bool): Abort on first error
 
         Returns:
             List[Dict[str, Any]]: List of content blocks
