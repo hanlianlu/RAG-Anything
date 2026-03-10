@@ -1370,7 +1370,8 @@ class DoclingParser(Parser):
             pdf_path: Path to the PDF file
             output_dir: Output directory path
             method: Parsing method (auto, txt, ocr)
-            lang: Document language for OCR optimization
+            lang: Ignored by Docling (kept for API parity with MinerU).
+                Use ``ocr_lang`` in **kwargs for OCR language selection.
             **kwargs: Docling CLI options:
                 - table_mode (str): "accurate" or "fast"
                 - tables (bool): Enable/disable table extraction
@@ -1434,7 +1435,8 @@ class DoclingParser(Parser):
             file_path: Path to the file to be parsed
             method: Parsing method
             output_dir: Output directory path
-            lang: Document language for optimization
+            lang: Ignored by Docling (kept for API parity with MinerU).
+                Use ``ocr_lang`` in **kwargs for OCR language selection.
             **kwargs: Additional parameters for docling command
 
         Returns:
@@ -1763,7 +1765,8 @@ class DoclingParser(Parser):
         Args:
             doc_path: Path to the document file
             output_dir: Output directory path
-            lang: Document language for optimization
+            lang: Ignored by Docling (kept for API parity with MinerU).
+                Use ``ocr_lang`` in **kwargs for OCR language selection.
             **kwargs: Docling CLI options:
                 - table_mode (str): "accurate" or "fast"
                 - tables (bool): Enable/disable table extraction
@@ -1830,7 +1833,8 @@ class DoclingParser(Parser):
         Args:
             html_path: Path to the HTML file
             output_dir: Output directory path
-            lang: Document language for optimization
+            lang: Ignored by Docling (kept for API parity with MinerU).
+                Use ``ocr_lang`` in **kwargs for OCR language selection.
             **kwargs: Docling CLI options:
                 - table_mode (str): "accurate" or "fast"
                 - tables (bool): Enable/disable table extraction
