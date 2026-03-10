@@ -1369,7 +1369,16 @@ class DoclingParser(Parser):
         }
     )
 
-    # Kwargs that DoclingParser actually honours.
+    # Kwargs accepted by DoclingParser.
+    #
+    # ``table_mode``, ``tables``, ``allow_ocr`` and ``artifacts_path`` are
+    # actively mapped to ``PdfPipelineOptions`` attributes.
+    #
+    # ``ocr_engine``, ``ocr_lang``, ``pdf_backend``, ``abort_on_error`` and
+    # ``env`` are accepted for **backward-compatibility** with the former CLI
+    # interface but are **not currently wired** into the Python API path.
+    # They are retained so that callers upgrading from the CLI path do not
+    # need to strip them from their kwargs dicts.
     _KNOWN_KWARGS = frozenset(
         {
             "table_mode",
@@ -1381,6 +1390,19 @@ class DoclingParser(Parser):
             "artifacts_path",
             "abort_on_error",
             "env",
+        }
+    )
+
+    # Subset of ``_KNOWN_KWARGS`` that are accepted for backward-compat but
+    # do **not** influence the constructed ``DocumentConverter``.  They are
+    # excluded from the converter cache key so that they cannot trigger an
+    # unnecessary (and expensive) model reload.
+    _COMPAT_ONLY_KWARGS = frozenset(
+        {
+            "ocr_engine",
+            "ocr_lang",
+            "pdf_backend",
+            "abort_on_error",
         }
     )
 
@@ -1477,10 +1499,12 @@ class DoclingParser(Parser):
         if artifacts_path is not None:
             opts.artifacts_path = artifacts_path
 
-        # Note: ocr_engine, ocr_lang, and pdf_backend require
-        # engine-specific option classes in the docling Python API.
-        # They are accepted and included in the converter cache key so
-        # that future mapping can be added without breaking callers.
+        # Note: ocr_engine, ocr_lang, pdf_backend, and abort_on_error are
+        # accepted for backward compatibility (see ``_COMPAT_ONLY_KWARGS``)
+        # but are **not** currently mapped to pipeline options.  They require
+        # engine-specific option classes in the docling Python API which are
+        # not yet wired here.  Similarly, ``env`` was used by the former CLI
+        # subprocess path and has no effect in the Python API.
 
         return opts
 
@@ -1496,6 +1520,11 @@ class DoclingParser(Parser):
         silently accepted.  Anything else that is not in
         ``_KNOWN_KWARGS`` or ``_IGNORED_KWARGS`` triggers a fail-fast
         error so that typos are caught early.
+
+        The ``env`` kwarg is additionally type-checked (must be a
+        ``dict[str, str]``) even though it has **no effect** in the
+        Python API path — this preserves the validation that the former
+        CLI path provided.
         """
         unknown = set(kwargs) - DoclingParser._KNOWN_KWARGS - DoclingParser._IGNORED_KWARGS
         if unknown:
@@ -1504,18 +1533,39 @@ class DoclingParser(Parser):
                 f"DoclingParser received unexpected keyword argument(s): {unsupported}"
             )
 
+        # Validate env type when provided (backward-compat with CLI path).
+        env = kwargs.get("env")
+        if env is not None:
+            if not isinstance(env, dict):
+                raise TypeError(
+                    f"'env' must be a dict, got {type(env).__name__}"
+                )
+            for k, v in env.items():
+                if not isinstance(k, str) or not isinstance(v, str):
+                    raise TypeError(
+                        "'env' must be a dict mapping str to str"
+                    )
+
     # ------------------------------------------------------------------
     # Converter management (lazy-init + caching)
     # ------------------------------------------------------------------
 
     @staticmethod
     def _make_converter_key(**kwargs) -> str:
-        """Create a hashable key from kwargs for converter caching."""
+        """Create a hashable key from kwargs for converter caching.
+
+        Only kwargs that actually affect the underlying ``DocumentConverter``
+        configuration are included here; backward-compat-only kwargs (such
+        as ``ocr_engine``, ``ocr_lang``, ``pdf_backend``, ``abort_on_error``)
+        and ``env`` are intentionally excluded so they do not cause
+        unnecessary cache invalidation and model reloads.
+        """
         filtered = {
             k: v
             for k, v in sorted(kwargs.items())
             if v is not None
             and k not in DoclingParser._IGNORED_KWARGS
+            and k not in DoclingParser._COMPAT_ONLY_KWARGS
             and k != "env"
         }
         return json.dumps(filtered, sort_keys=True, default=str)

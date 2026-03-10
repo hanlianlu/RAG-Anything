@@ -9,10 +9,8 @@ Usage:
     pytest tests/testparser_python_api.py -v
 """
 
-import json
 import sys
 import pytest
-from pathlib import Path
 from unittest.mock import patch, MagicMock
 
 
@@ -60,20 +58,26 @@ def _make_docling_mocks():
     }
 
 
-def _install_docling_mocks(mocks):
-    """Inject mock docling modules into sys.modules."""
-    sys.modules.setdefault("docling", MagicMock())
-    sys.modules["docling.document_converter"] = mocks["converter_module"]
-    sys.modules.setdefault("docling.datamodel", MagicMock())
-    sys.modules["docling.datamodel.base_models"] = mocks["base_models_module"]
-    sys.modules["docling.datamodel.pipeline_options"] = mocks["pipeline_module"]
+def _install_docling_mocks(monkeypatch, mocks):
+    """Inject mock docling modules into sys.modules via *monkeypatch*.
 
-
-def _remove_docling_mocks():
-    """Remove injected docling modules from sys.modules."""
-    for key in list(sys.modules):
-        if key == "docling" or key.startswith("docling."):
-            del sys.modules[key]
+    Using ``monkeypatch.setitem`` ensures that the original
+    ``sys.modules`` state is restored automatically at the end of each
+    test — even when ``docling`` is genuinely installed.
+    """
+    if "docling" not in sys.modules:
+        monkeypatch.setitem(sys.modules, "docling", MagicMock())
+    monkeypatch.setitem(
+        sys.modules, "docling.document_converter", mocks["converter_module"]
+    )
+    if "docling.datamodel" not in sys.modules:
+        monkeypatch.setitem(sys.modules, "docling.datamodel", MagicMock())
+    monkeypatch.setitem(
+        sys.modules, "docling.datamodel.base_models", mocks["base_models_module"]
+    )
+    monkeypatch.setitem(
+        sys.modules, "docling.datamodel.pipeline_options", mocks["pipeline_module"]
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -81,12 +85,11 @@ def _remove_docling_mocks():
 # ---------------------------------------------------------------------------
 
 @pytest.fixture
-def docling_mocks():
-    """Provide docling mock modules and clean up after the test."""
+def docling_mocks(monkeypatch):
+    """Provide docling mock modules; cleanup is automatic via monkeypatch."""
     mocks = _make_docling_mocks()
-    _install_docling_mocks(mocks)
+    _install_docling_mocks(monkeypatch, mocks)
     yield mocks
-    _remove_docling_mocks()
 
 
 @pytest.fixture
@@ -127,9 +130,25 @@ class TestLazyImport:
         second = docling_parser._ensure_docling_imports()
         assert first is second
 
-    def test_import_error_when_docling_missing(self):
+    def test_import_error_when_docling_missing(self, monkeypatch):
         """When docling is not installed, _ensure_docling_imports raises ImportError."""
-        _remove_docling_mocks()
+        # Force ImportError by making the import machinery raise when
+        # ``docling.document_converter`` is imported, regardless of
+        # whether docling is actually installed.
+        _real_import = __builtins__.__import__ if hasattr(__builtins__, '__import__') else __import__
+
+        def _block_docling(name, *args, **kwargs):
+            if name.startswith("docling"):
+                raise ImportError("mocked: docling not installed")
+            return _real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr("builtins.__import__", _block_docling)
+        # Remove any cached docling modules so the parser attempts a
+        # fresh import.
+        for key in list(sys.modules):
+            if key == "docling" or key.startswith("docling."):
+                monkeypatch.delitem(sys.modules, key)
+
         from raganything.parser import DoclingParser
         parser = DoclingParser()
         with pytest.raises(ImportError, match="docling"):
@@ -220,6 +239,14 @@ class TestKwargValidation:
             device="cpu",
         )
 
+    def test_env_must_be_dict(self, docling_parser, docling_mocks):
+        with pytest.raises(TypeError, match="'env' must be a dict"):
+            docling_parser._validate_kwargs(env="not_a_dict")
+
+    def test_env_values_must_be_str(self, docling_parser, docling_mocks):
+        with pytest.raises(TypeError, match="str to str"):
+            docling_parser._validate_kwargs(env={"K": 123})
+
 
 # ---------------------------------------------------------------------------
 # 5. Converter management (caching & invalidation)
@@ -242,6 +269,16 @@ class TestConverterManagement:
         call_count_after_first = docling_mocks["DocumentConverter"].call_count
         docling_parser._get_converter(table_mode="fast")
         assert docling_mocks["DocumentConverter"].call_count == call_count_after_first + 1
+
+    def test_compat_only_kwargs_do_not_invalidate_cache(self, docling_parser, docling_mocks):
+        """Backward-compat kwargs (ocr_engine, etc.) must NOT cause a cache miss."""
+        docling_parser._get_converter(table_mode="accurate")
+        call_count_after_first = docling_mocks["DocumentConverter"].call_count
+        # Changing only compat-only kwargs should reuse the same converter
+        docling_parser._get_converter(
+            table_mode="accurate", ocr_engine="tesseract", ocr_lang="en"
+        )
+        assert docling_mocks["DocumentConverter"].call_count == call_count_after_first
 
 
 # ---------------------------------------------------------------------------
@@ -454,8 +491,19 @@ class TestCheckInstallation:
     ):
         assert docling_parser.check_installation() is True
 
-    def test_returns_false_when_docling_missing(self):
-        _remove_docling_mocks()
+    def test_returns_false_when_docling_missing(self, monkeypatch):
+        _real_import = __builtins__.__import__ if hasattr(__builtins__, '__import__') else __import__
+
+        def _block_docling(name, *args, **kwargs):
+            if name.startswith("docling"):
+                raise ImportError("mocked: docling not installed")
+            return _real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr("builtins.__import__", _block_docling)
+        for key in list(sys.modules):
+            if key == "docling" or key.startswith("docling."):
+                monkeypatch.delitem(sys.modules, key)
+
         from raganything.parser import DoclingParser
         parser = DoclingParser()
         assert parser.check_installation() is False
