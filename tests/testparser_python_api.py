@@ -298,6 +298,12 @@ class TestPipelineOptions:
         )
         assert opts.ocr_options == docling_mocks["TesseractOcrOptions"].return_value
 
+    def test_ocr_lang_empty_string_defaults(self, docling_parser, docling_mocks):
+        """An empty ocr_lang string should produce default OCR options (no lang list)."""
+        opts = docling_parser._build_pipeline_options(ocr_lang="")
+        docling_mocks["EasyOcrOptions"].assert_called_once_with()
+        assert opts.ocr_options == docling_mocks["EasyOcrOptions"].return_value
+
 
 # ---------------------------------------------------------------------------
 # 4. Kwarg validation (fail-fast on typos)

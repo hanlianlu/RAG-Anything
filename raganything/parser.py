@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import os
 import hashlib
+import importlib
 import json
 import argparse
 import base64
@@ -1510,8 +1511,11 @@ class DoclingParser(Parser):
         if ocr_engine is not None or ocr_lang is not None:
             ocr_options_cls = self._resolve_ocr_engine(ocr_engine or "easyocr")
             if ocr_lang is not None:
-                lang_list = [lang.strip() for lang in ocr_lang.split(",")]
-                opts.ocr_options = ocr_options_cls(lang=lang_list)
+                lang_list = [lang.strip() for lang in ocr_lang.split(",") if lang.strip()]
+                if lang_list:
+                    opts.ocr_options = ocr_options_cls(lang=lang_list)
+                else:
+                    opts.ocr_options = ocr_options_cls()
             else:
                 opts.ocr_options = ocr_options_cls()
 
@@ -1694,7 +1698,6 @@ class DoclingParser(Parser):
             )
 
         module_path, class_name = entry
-        import importlib
 
         try:
             mod = importlib.import_module(module_path)
