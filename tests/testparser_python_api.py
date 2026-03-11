@@ -27,9 +27,17 @@ def _make_docling_mocks():
 
     MockPdfPipelineOptions = MagicMock()
 
+    # OCR option classes
+    MockEasyOcrOptions = MagicMock()
+    MockTesseractOcrOptions = MagicMock()
+    MockTesseractCliOcrOptions = MagicMock()
+
     MockPipelineModule = MagicMock()
     MockPipelineModule.PdfPipelineOptions = MockPdfPipelineOptions
     MockPipelineModule.TableFormerMode = MockTableFormerMode
+    MockPipelineModule.EasyOcrOptions = MockEasyOcrOptions
+    MockPipelineModule.TesseractOcrOptions = MockTesseractOcrOptions
+    MockPipelineModule.TesseractCliOcrOptions = MockTesseractCliOcrOptions
 
     # InputFormat
     MockInputFormat = MagicMock()
@@ -46,6 +54,11 @@ def _make_docling_mocks():
     MockConverterModule.DocumentConverter = MockDocumentConverter
     MockConverterModule.PdfFormatOption = MockPdfFormatOption
 
+    # PDF backend classes
+    MockDlParseV2Backend = MagicMock()
+    MockDlParseV1Backend = MagicMock()
+    MockPyPdfiumBackend = MagicMock()
+
     return {
         "pipeline_module": MockPipelineModule,
         "base_models_module": MockBaseModels,
@@ -55,6 +68,12 @@ def _make_docling_mocks():
         "PdfPipelineOptions": MockPdfPipelineOptions,
         "TableFormerMode": MockTableFormerMode,
         "InputFormat": MockInputFormat,
+        "EasyOcrOptions": MockEasyOcrOptions,
+        "TesseractOcrOptions": MockTesseractOcrOptions,
+        "TesseractCliOcrOptions": MockTesseractCliOcrOptions,
+        "DlParseV2Backend": MockDlParseV2Backend,
+        "DlParseV1Backend": MockDlParseV1Backend,
+        "PyPdfiumBackend": MockPyPdfiumBackend,
     }
 
 
@@ -103,6 +122,32 @@ def _install_docling_mocks(monkeypatch, mocks):
         sys.modules, "docling.datamodel.pipeline_options", mocks["pipeline_module"]
     )
 
+    # PDF backend modules – each exposes a single backend class
+    _mock_v2_backend_module = MagicMock()
+    _mock_v2_backend_module.DoclingParseV2DocumentBackend = mocks["DlParseV2Backend"]
+    _mock_v1_backend_module = MagicMock()
+    _mock_v1_backend_module.DoclingParseDocumentBackend = mocks["DlParseV1Backend"]
+    _mock_pypdfium_backend_module = MagicMock()
+    _mock_pypdfium_backend_module.PyPdfiumDocumentBackend = mocks["PyPdfiumBackend"]
+
+    if "docling.backend" not in sys.modules:
+        monkeypatch.setitem(sys.modules, "docling.backend", MagicMock())
+    monkeypatch.setitem(
+        sys.modules,
+        "docling.backend.docling_parse_v2_backend",
+        _mock_v2_backend_module,
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "docling.backend.docling_parse_backend",
+        _mock_v1_backend_module,
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "docling.backend.pypdfium2_backend",
+        _mock_pypdfium_backend_module,
+    )
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -148,6 +193,9 @@ class TestLazyImport:
         assert "InputFormat" in imports
         assert "PdfPipelineOptions" in imports
         assert "TableFormerMode" in imports
+        assert "EasyOcrOptions" in imports
+        assert "TesseractOcrOptions" in imports
+        assert "TesseractCliOcrOptions" in imports
 
     def test_ensure_imports_cached(self, docling_parser, docling_mocks):
         first = docling_parser._ensure_docling_imports()
@@ -216,6 +264,52 @@ class TestPipelineOptions:
             end_page=2,
         )
 
+    def test_ocr_engine_easyocr(self, docling_parser, docling_mocks):
+        opts = docling_parser._build_pipeline_options(ocr_engine="easyocr")
+        docling_mocks["EasyOcrOptions"].assert_called_once_with()
+        assert opts.ocr_options == docling_mocks["EasyOcrOptions"].return_value
+
+    def test_ocr_engine_tesseract(self, docling_parser, docling_mocks):
+        opts = docling_parser._build_pipeline_options(ocr_engine="tesseract")
+        docling_mocks["TesseractOcrOptions"].assert_called_once_with()
+        assert opts.ocr_options == docling_mocks["TesseractOcrOptions"].return_value
+
+    def test_ocr_engine_tesseract_cli(self, docling_parser, docling_mocks):
+        opts = docling_parser._build_pipeline_options(ocr_engine="tesseract_cli")
+        docling_mocks["TesseractCliOcrOptions"].assert_called_once_with()
+        assert opts.ocr_options == docling_mocks["TesseractCliOcrOptions"].return_value
+
+    def test_ocr_engine_invalid(self, docling_parser, docling_mocks):
+        with pytest.raises(ValueError, match="Unsupported OCR engine"):
+            docling_parser._build_pipeline_options(ocr_engine="invalid_engine")
+
+    def test_ocr_engine_auto(self, docling_parser, docling_mocks):
+        """'auto' should resolve to EasyOcrOptions (the default engine)."""
+        opts = docling_parser._build_pipeline_options(ocr_engine="auto")
+        docling_mocks["EasyOcrOptions"].assert_called_once_with()
+        assert opts.ocr_options == docling_mocks["EasyOcrOptions"].return_value
+
+    def test_ocr_lang_sets_language(self, docling_parser, docling_mocks):
+        opts = docling_parser._build_pipeline_options(ocr_lang="en,de")
+        # When only ocr_lang is provided, defaults to easyocr engine
+        docling_mocks["EasyOcrOptions"].assert_called_once_with(lang=["en", "de"])
+        assert opts.ocr_options == docling_mocks["EasyOcrOptions"].return_value
+
+    def test_ocr_engine_and_lang_combined(self, docling_parser, docling_mocks):
+        opts = docling_parser._build_pipeline_options(
+            ocr_engine="tesseract", ocr_lang="eng,deu"
+        )
+        docling_mocks["TesseractOcrOptions"].assert_called_once_with(
+            lang=["eng", "deu"]
+        )
+        assert opts.ocr_options == docling_mocks["TesseractOcrOptions"].return_value
+
+    def test_ocr_lang_empty_string_defaults(self, docling_parser, docling_mocks):
+        """An empty ocr_lang string should produce default OCR options (no lang list)."""
+        opts = docling_parser._build_pipeline_options(ocr_lang="")
+        docling_mocks["EasyOcrOptions"].assert_called_once_with()
+        assert opts.ocr_options == docling_mocks["EasyOcrOptions"].return_value
+
 
 # ---------------------------------------------------------------------------
 # 4. Kwarg validation (fail-fast on typos)
@@ -280,14 +374,86 @@ class TestConverterManagement:
         assert docling_mocks["DocumentConverter"].call_count == call_count_after_first + 1
 
     def test_compat_only_kwargs_do_not_invalidate_cache(self, docling_parser, docling_mocks):
-        """Backward-compat kwargs (ocr_engine, etc.) must NOT cause a cache miss."""
+        """Backward-compat kwargs (abort_on_error, env) must NOT cause a cache miss."""
         docling_parser._get_converter(table_mode="accurate")
         call_count_after_first = docling_mocks["DocumentConverter"].call_count
         # Changing only compat-only kwargs should reuse the same converter
         docling_parser._get_converter(
-            table_mode="accurate", ocr_engine="tesseract", ocr_lang="en"
+            table_mode="accurate", abort_on_error=True, env={"K": "V"}
         )
         assert docling_mocks["DocumentConverter"].call_count == call_count_after_first
+
+    def test_ocr_engine_invalidates_cache(self, docling_parser, docling_mocks):
+        """Changing ocr_engine must create a new converter (it's now wired)."""
+        docling_parser._get_converter(table_mode="accurate")
+        call_count_after_first = docling_mocks["DocumentConverter"].call_count
+        docling_parser._get_converter(
+            table_mode="accurate", ocr_engine="tesseract"
+        )
+        assert docling_mocks["DocumentConverter"].call_count == call_count_after_first + 1
+
+    def test_ocr_lang_invalidates_cache(self, docling_parser, docling_mocks):
+        """Changing ocr_lang must create a new converter (it's now wired)."""
+        docling_parser._get_converter(table_mode="accurate")
+        call_count_after_first = docling_mocks["DocumentConverter"].call_count
+        docling_parser._get_converter(
+            table_mode="accurate", ocr_lang="en,de"
+        )
+        assert docling_mocks["DocumentConverter"].call_count == call_count_after_first + 1
+
+    def test_pdf_backend_invalidates_cache(self, docling_parser, docling_mocks):
+        """Changing pdf_backend must create a new converter (it's now wired)."""
+        docling_parser._get_converter(table_mode="accurate")
+        call_count_after_first = docling_mocks["DocumentConverter"].call_count
+        docling_parser._get_converter(
+            table_mode="accurate", pdf_backend="dlparse_v2"
+        )
+        assert docling_mocks["DocumentConverter"].call_count == call_count_after_first + 1
+
+
+# ---------------------------------------------------------------------------
+# 5b. PDF backend resolution
+# ---------------------------------------------------------------------------
+
+class TestPdfBackendResolution:
+
+    def test_resolve_dlparse_v2(self, docling_parser, docling_mocks):
+        cls = docling_parser._resolve_pdf_backend("dlparse_v2")
+        assert cls is docling_mocks["DlParseV2Backend"]
+
+    def test_resolve_dlparse_v1(self, docling_parser, docling_mocks):
+        cls = docling_parser._resolve_pdf_backend("dlparse_v1")
+        assert cls is docling_mocks["DlParseV1Backend"]
+
+    def test_resolve_pypdfium2(self, docling_parser, docling_mocks):
+        cls = docling_parser._resolve_pdf_backend("pypdfium2")
+        assert cls is docling_mocks["PyPdfiumBackend"]
+
+    def test_resolve_invalid_backend(self, docling_parser, docling_mocks):
+        with pytest.raises(ValueError, match="Unsupported PDF backend"):
+            docling_parser._resolve_pdf_backend("nonexistent")
+
+    def test_resolve_backend_missing_class(self, docling_parser, docling_mocks, monkeypatch):
+        """If the module exists but the class is missing, raise ValueError."""
+        import types
+        empty_mod = types.ModuleType("docling.backend.docling_parse_v2_backend")
+        monkeypatch.setitem(
+            sys.modules,
+            "docling.backend.docling_parse_v2_backend",
+            empty_mod,
+        )
+        with pytest.raises(ValueError, match="was not found"):
+            docling_parser._resolve_pdf_backend("dlparse_v2")
+
+    def test_pdf_backend_passed_to_format_option(self, docling_parser, docling_mocks):
+        """pdf_backend should be passed as 'backend' to PdfFormatOption."""
+        docling_parser._get_converter(pdf_backend="dlparse_v2")
+        # Verify PdfFormatOption was called with the backend kwarg
+        call_kwargs = docling_mocks["PdfFormatOption"].call_args
+        assert call_kwargs is not None
+        _, kw = call_kwargs
+        assert "backend" in kw
+        assert kw["backend"] is docling_mocks["DlParseV2Backend"]
 
 
 # ---------------------------------------------------------------------------
