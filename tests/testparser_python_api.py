@@ -283,6 +283,12 @@ class TestPipelineOptions:
         with pytest.raises(ValueError, match="Unsupported OCR engine"):
             docling_parser._build_pipeline_options(ocr_engine="invalid_engine")
 
+    def test_ocr_engine_auto(self, docling_parser, docling_mocks):
+        """'auto' should resolve to EasyOcrOptions (the default engine)."""
+        opts = docling_parser._build_pipeline_options(ocr_engine="auto")
+        docling_mocks["EasyOcrOptions"].assert_called_once_with()
+        assert opts.ocr_options == docling_mocks["EasyOcrOptions"].return_value
+
     def test_ocr_lang_sets_language(self, docling_parser, docling_mocks):
         opts = docling_parser._build_pipeline_options(ocr_lang="en,de")
         # When only ocr_lang is provided, defaults to easyocr engine
@@ -426,6 +432,18 @@ class TestPdfBackendResolution:
     def test_resolve_invalid_backend(self, docling_parser, docling_mocks):
         with pytest.raises(ValueError, match="Unsupported PDF backend"):
             docling_parser._resolve_pdf_backend("nonexistent")
+
+    def test_resolve_backend_missing_class(self, docling_parser, docling_mocks, monkeypatch):
+        """If the module exists but the class is missing, raise ValueError."""
+        import types
+        empty_mod = types.ModuleType("docling.backend.docling_parse_v2_backend")
+        monkeypatch.setitem(
+            sys.modules,
+            "docling.backend.docling_parse_v2_backend",
+            empty_mod,
+        )
+        with pytest.raises(ValueError, match="was not found"):
+            docling_parser._resolve_pdf_backend("dlparse_v2")
 
     def test_pdf_backend_passed_to_format_option(self, docling_parser, docling_mocks):
         """pdf_backend should be passed as 'backend' to PdfFormatOption."""

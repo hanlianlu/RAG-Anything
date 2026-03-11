@@ -1533,6 +1533,7 @@ class DoclingParser(Parser):
         "easyocr": "EasyOcrOptions",
         "tesseract": "TesseractOcrOptions",
         "tesseract_cli": "TesseractCliOcrOptions",
+        "auto": "EasyOcrOptions",
     }
 
     def _resolve_ocr_engine(self, engine_name: str):
@@ -1540,7 +1541,7 @@ class DoclingParser(Parser):
 
         Args:
             engine_name: One of ``"easyocr"``, ``"tesseract"``,
-                ``"tesseract_cli"``.
+                ``"tesseract_cli"``, or ``"auto"`` (defaults to easyocr).
 
         Returns:
             The OCR options class (e.g. ``EasyOcrOptions``).
@@ -1708,7 +1709,14 @@ class DoclingParser(Parser):
                 f"docling installation."
             ) from exc
 
-        return getattr(mod, class_name)
+        try:
+            return getattr(mod, class_name)
+        except AttributeError as exc:
+            raise ValueError(
+                f"PDF backend {backend_name!r} expects class "
+                f"{class_name!r} in module '{module_path}', but it was not found. "
+                f"This docling installation may not provide that backend class."
+            ) from exc
 
     # ------------------------------------------------------------------
     # Python API parsing core
@@ -1792,17 +1800,22 @@ class DoclingParser(Parser):
             method: Parsing method (auto, txt, ocr)
             lang: Ignored by Docling (kept for API parity with MinerU).
                 Use ``ocr_lang`` in **kwargs for OCR language selection.
-            **kwargs: Docling Python API options (all actively wired):
+            **kwargs: Docling Python API options forwarded to the
+                underlying converter. Most options are actively wired:
                 - table_mode (str): "accurate" or "fast"
                 - tables (bool): Enable/disable table extraction
                 - allow_ocr (bool): Enable/disable OCR
-                - ocr_engine (str): "easyocr", "tesseract", or
-                  "tesseract_cli"
+                - ocr_engine (str): "easyocr", "tesseract",
+                  "tesseract_cli", or "auto"
                 - ocr_lang (str): Comma-separated OCR languages
                   (e.g. "en,de")
                 - pdf_backend (str): "dlparse_v1", "dlparse_v2", or
                   "pypdfium2"
                 - artifacts_path (str): Model artifacts directory
+                - abort_on_error (bool): Accepted for backward
+                  compatibility but currently ignored.
+                - env (dict): Accepted for backward compatibility
+                  but currently ignored.
 
         Returns:
             List[Dict[str, Any]]: List of content blocks
@@ -1847,8 +1860,8 @@ class DoclingParser(Parser):
                   (``"accurate"`` or ``"fast"``).
                 - ``tables``: Whether to extract tables.
                 - ``allow_ocr``: Enable OCR when needed.
-                - ``ocr_engine``: ``"easyocr"``, ``"tesseract"``, or
-                  ``"tesseract_cli"``.
+                - ``ocr_engine``: ``"easyocr"``, ``"tesseract"``,
+                  ``"tesseract_cli"``, or ``"auto"``.
                 - ``ocr_lang``: Comma-separated OCR languages
                   (e.g. ``"en,de"``).
                 - ``pdf_backend``: ``"dlparse_v1"``, ``"dlparse_v2"``,
@@ -1994,17 +2007,22 @@ class DoclingParser(Parser):
             output_dir: Output directory path
             lang: Ignored by Docling (kept for API parity with MinerU).
                 Use ``ocr_lang`` in **kwargs for OCR language selection.
-            **kwargs: Docling Python API options (all actively wired):
+            **kwargs: Docling Python API options forwarded to the
+                underlying converter. Most options are actively wired:
                 - table_mode (str): "accurate" or "fast"
                 - tables (bool): Enable/disable table extraction
                 - allow_ocr (bool): Enable/disable OCR
-                - ocr_engine (str): "easyocr", "tesseract", or
-                  "tesseract_cli"
+                - ocr_engine (str): "easyocr", "tesseract",
+                  "tesseract_cli", or "auto"
                 - ocr_lang (str): Comma-separated OCR languages
                   (e.g. "en,de")
                 - pdf_backend (str): "dlparse_v1", "dlparse_v2", or
                   "pypdfium2"
                 - artifacts_path (str): Model artifacts directory
+                - abort_on_error (bool): Accepted for backward
+                  compatibility but currently ignored.
+                - env (dict): Accepted for backward compatibility
+                  but currently ignored.
 
         Returns:
             List[Dict[str, Any]]: List of content blocks
@@ -2043,17 +2061,22 @@ class DoclingParser(Parser):
             output_dir: Output directory path
             lang: Ignored by Docling (kept for API parity with MinerU).
                 Use ``ocr_lang`` in **kwargs for OCR language selection.
-            **kwargs: Docling Python API options (all actively wired):
+            **kwargs: Docling Python API options forwarded to the
+                underlying converter. Most options are actively wired:
                 - table_mode (str): "accurate" or "fast"
                 - tables (bool): Enable/disable table extraction
                 - allow_ocr (bool): Enable/disable OCR
-                - ocr_engine (str): "easyocr", "tesseract", or
-                  "tesseract_cli"
+                - ocr_engine (str): "easyocr", "tesseract",
+                  "tesseract_cli", or "auto"
                 - ocr_lang (str): Comma-separated OCR languages
                   (e.g. "en,de")
                 - pdf_backend (str): "dlparse_v1", "dlparse_v2", or
                   "pypdfium2"
                 - artifacts_path (str): Model artifacts directory
+                - abort_on_error (bool): Accepted for backward
+                  compatibility but currently ignored.
+                - env (dict): Accepted for backward compatibility
+                  but currently ignored.
 
         Returns:
             List[Dict[str, Any]]: List of content blocks
