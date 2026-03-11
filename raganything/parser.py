@@ -1838,8 +1838,10 @@ class DoclingParser(Parser):
             output_dir: Output directory path
             lang: Ignored by Docling (kept for API parity with MinerU).
                 Use ``ocr_lang`` in **kwargs for OCR language selection.
-            **kwargs: Docling Python API options, forwarded to the
-                underlying parser. All options are actively wired:
+            **kwargs: Additional Docling Python API options, forwarded to the
+                underlying parser where supported. Some backward-compatible
+                options (for example, ``abort_on_error`` or ``env``) may be
+                accepted but ignored. Commonly used options include:
 
                 - ``table_mode``: Table extraction mode
                   (``"accurate"`` or ``"fast"``).
