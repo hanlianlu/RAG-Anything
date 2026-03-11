@@ -3,8 +3,7 @@
 Parser Validation Test Script for RAG-Anything (Pytest)
 
 This script validates the environment variable propagation and
-argument validation logic for MineruParser and the pipeline-options
-logic for DoclingParser (Python API).
+fail-fast keyword argument validation logic for MineruParser.
 
 Requirements:
 - RAG-Anything package
