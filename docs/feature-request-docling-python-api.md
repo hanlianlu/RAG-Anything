@@ -93,11 +93,13 @@ The refactored `DoclingParser` introduces the following internal methods:
 
 | Method | Purpose |
 |--------|---------|
-| `_ensure_docling_imports()` | Lazy-import `docling` modules on first use; raises `ImportError` with actionable message if the package is missing. |
-| `_build_pipeline_options(**kwargs)` | Map user-facing kwargs (`table_mode`, `tables`, `allow_ocr`, `artifacts_path`) to `PdfPipelineOptions` attributes. |
+| `_ensure_docling_imports()` | Lazy-import `docling` modules on first use; raises `ImportError` with actionable message if the package is missing. Also imports OCR option classes (`EasyOcrOptions`, `TesseractOcrOptions`, `TesseractCliOcrOptions`). |
+| `_build_pipeline_options(**kwargs)` | Map user-facing kwargs (`table_mode`, `tables`, `allow_ocr`, `artifacts_path`, `ocr_engine`, `ocr_lang`) to `PdfPipelineOptions` attributes. |
+| `_resolve_ocr_engine(engine_name)` | Map an OCR engine name string (`"easyocr"`, `"tesseract"`, `"tesseract_cli"`) to the corresponding docling options class. |
+| `_resolve_pdf_backend(backend_name)` | Map a PDF backend name string (`"dlparse_v1"`, `"dlparse_v2"`, `"pypdfium2"`) to the corresponding docling backend class (lazy-imported from `docling.backend.*`). |
 | `_validate_kwargs(**kwargs)` | Fail-fast on unknown keyword arguments to catch typos early. MinerU-specific kwargs are silently ignored for cross-parser compatibility. |
 | `_make_converter_key(**kwargs)` | Produce a hashable cache key from converter-relevant kwargs only. |
-| `_get_converter(**kwargs)` | Return a cached `DocumentConverter` instance, creating a new one only when the effective configuration changes. |
+| `_get_converter(**kwargs)` | Return a cached `DocumentConverter` instance, creating a new one only when the effective configuration changes. Wires `pdf_backend` into `PdfFormatOption`. |
 | `_parse_with_python_api(input_path, output_dir, **kwargs)` | Core parsing entry-point: validates, converts, and transforms the result into the MinerU-compatible content-list format. |
 
 ### Methods Removed
@@ -132,22 +134,28 @@ _IGNORED_KWARGS = frozenset({
     "vlm_url", "start_page", "end_page",
 })
 
-# Docling-specific — actively mapped to PdfPipelineOptions
+# Docling-specific — ALL actively wired to the Python API
 _KNOWN_KWARGS = frozenset({
     "table_mode", "tables", "allow_ocr", "ocr_engine",
     "ocr_lang", "pdf_backend", "artifacts_path",
     "abort_on_error", "env",
 })
 
-# Accepted for backward-compat but NOT wired into the Python API
+# Only these two have no Python API equivalent and are silently ignored
 _COMPAT_ONLY_KWARGS = frozenset({
-    "ocr_engine", "ocr_lang", "pdf_backend",
-    "abort_on_error", "env",
+    "abort_on_error",   # CLI process-level concept, no API mapping
+    "env",              # was for subprocess env vars, irrelevant in-process
 })
 ```
 
 - **No breaking changes** to the public `parse_pdf()`, `parse_document()`,
   `parse_office_doc()`, `parse_html()` signatures.
+- `ocr_engine`, `ocr_lang`, and `pdf_backend` are now **actively wired**
+  into the Docling Python API (pipeline options and converter format
+  options respectively). Supported values:
+  - `ocr_engine`: `"easyocr"`, `"tesseract"`, `"tesseract_cli"`
+  - `ocr_lang`: comma-separated language codes (e.g. `"en,de"`)
+  - `pdf_backend`: `"dlparse_v1"`, `"dlparse_v2"`, `"pypdfium2"`
 - Callers passing `env={"KEY": "VAL"}` (previously used for subprocess
   environment) will have the type validated but the value silently ignored.
 - Unknown kwargs raise `TypeError` immediately for fail-fast debugging.
@@ -180,13 +188,21 @@ wall-clock time depending on model size and hardware.
 ## Test Coverage
 
 The reference implementation includes a comprehensive test suite
-(`tests/testparser_python_api.py`) with **45 test methods** covering:
+(`tests/testparser_python_api.py`) with **49 test methods** covering:
 
 - **Construction** — lazy initialization, no premature imports
-- **Lazy imports** — module caching, `ImportError` when docling is missing
-- **Pipeline options** — `table_mode`, `tables`, `allow_ocr`, `artifacts_path` mapping
+- **Lazy imports** — module caching, `ImportError` when docling is missing;
+  OCR option classes included in import dict
+- **Pipeline options** — `table_mode`, `tables`, `allow_ocr`, `artifacts_path`,
+  `ocr_engine`, `ocr_lang` mapping
+- **OCR engine resolution** — easyocr, tesseract, tesseract_cli; combined
+  engine + language; invalid engine error
+- **PDF backend resolution** — dlparse_v1, dlparse_v2, pypdfium2; invalid
+  backend error; backend passed to `PdfFormatOption`
 - **Kwarg validation** — unknown kwargs rejected, MinerU kwargs silently ignored, `env` type-checking
-- **Converter caching** — reuse on identical config, invalidation on config change
+- **Converter caching** — reuse on identical config, invalidation on config
+  change; `ocr_engine`/`ocr_lang`/`pdf_backend` now correctly invalidate
+  cache; only `abort_on_error`/`env` are excluded
 - **`_parse_with_python_api()`** — end-to-end flow with mocked `DocumentConverter`
 - **`parse_pdf()` / `parse_office_doc()` / `parse_html()`** — delegation to core method
 - **`parse_document()`** — format dispatch, unsupported format error
@@ -242,15 +258,19 @@ parser.parse_pdf("doc.pdf", env={"DOCLING_CACHE": "/tmp"})
 
 ### For Advanced Configuration
 
-The Python API exposes more options than the CLI:
+The Python API exposes more options than the CLI, and **all** are now
+actively wired:
 
 ```python
 parser.parse_pdf(
     "doc.pdf",
-    table_mode="accurate",      # TableFormerMode.ACCURATE
-    tables=True,                # do_table_structure = True
-    allow_ocr=True,             # do_ocr = True
-    artifacts_path="/models",   # custom model artifacts directory
+    table_mode="accurate",           # TableFormerMode.ACCURATE
+    tables=True,                     # do_table_structure = True
+    allow_ocr=True,                  # do_ocr = True
+    ocr_engine="tesseract",          # TesseractOcrOptions
+    ocr_lang="eng,deu",              # language list for OCR engine
+    pdf_backend="dlparse_v2",        # DoclingParseV2DocumentBackend
+    artifacts_path="/models",        # custom model artifacts directory
 )
 ```
 

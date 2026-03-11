@@ -1371,14 +1371,15 @@ class DoclingParser(Parser):
 
     # Kwargs accepted by DoclingParser.
     #
-    # ``table_mode``, ``tables``, ``allow_ocr`` and ``artifacts_path`` are
-    # actively mapped to ``PdfPipelineOptions`` attributes.
+    # ``table_mode``, ``tables``, ``allow_ocr``, ``artifacts_path``,
+    # ``ocr_engine``, ``ocr_lang``, and ``pdf_backend`` are actively
+    # mapped to the underlying Docling Python API (pipeline options or
+    # converter format options).
     #
-    # ``ocr_engine``, ``ocr_lang``, ``pdf_backend``, ``abort_on_error`` and
-    # ``env`` are accepted for **backward-compatibility** with the former CLI
-    # interface but are **not currently wired** into the Python API path.
-    # They are retained so that callers upgrading from the CLI path do not
-    # need to strip them from their kwargs dicts.
+    # ``abort_on_error`` and ``env`` are accepted for **backward-
+    # compatibility** with the former CLI interface but have no effect in
+    # the Python API path.  They are retained so that callers upgrading
+    # from the CLI path do not need to strip them from their kwargs dicts.
     _KNOWN_KWARGS = frozenset(
         {
             "table_mode",
@@ -1399,9 +1400,6 @@ class DoclingParser(Parser):
     # unnecessary (and expensive) model reload.
     _COMPAT_ONLY_KWARGS = frozenset(
         {
-            "ocr_engine",
-            "ocr_lang",
-            "pdf_backend",
             "abort_on_error",
             "env",
         }
@@ -1442,6 +1440,9 @@ class DoclingParser(Parser):
             from docling.datamodel.pipeline_options import (
                 PdfPipelineOptions,
                 TableFormerMode,
+                EasyOcrOptions,
+                TesseractOcrOptions,
+                TesseractCliOcrOptions,
             )
         except ImportError as exc:
             raise ImportError(
@@ -1455,6 +1456,9 @@ class DoclingParser(Parser):
             "InputFormat": InputFormat,
             "PdfPipelineOptions": PdfPipelineOptions,
             "TableFormerMode": TableFormerMode,
+            "EasyOcrOptions": EasyOcrOptions,
+            "TesseractOcrOptions": TesseractOcrOptions,
+            "TesseractCliOcrOptions": TesseractCliOcrOptions,
         }
         return self._docling_imports
 
@@ -1500,14 +1504,55 @@ class DoclingParser(Parser):
         if artifacts_path is not None:
             opts.artifacts_path = artifacts_path
 
-        # Note: ocr_engine, ocr_lang, pdf_backend, and abort_on_error are
-        # accepted for backward compatibility (see ``_COMPAT_ONLY_KWARGS``)
-        # but are **not** currently mapped to pipeline options.  They require
-        # engine-specific option classes in the docling Python API which are
-        # not yet wired here.  Similarly, ``env`` was used by the former CLI
-        # subprocess path and has no effect in the Python API.
+        # --- ocr_engine / ocr_lang ---
+        ocr_engine = kwargs.get("ocr_engine")
+        ocr_lang = kwargs.get("ocr_lang")
+        if ocr_engine is not None or ocr_lang is not None:
+            ocr_options_cls = self._resolve_ocr_engine(ocr_engine or "easyocr")
+            if ocr_lang is not None:
+                lang_list = [lang.strip() for lang in ocr_lang.split(",")]
+                opts.ocr_options = ocr_options_cls(lang=lang_list)
+            else:
+                opts.ocr_options = ocr_options_cls()
+
+        # Note: ``abort_on_error`` and ``env`` are accepted for backward
+        # compatibility (see ``_COMPAT_ONLY_KWARGS``) but have no effect
+        # in the Python API.
 
         return opts
+
+    # ------------------------------------------------------------------
+    # OCR engine resolution
+    # ------------------------------------------------------------------
+
+    _OCR_ENGINE_NAMES = {
+        "easyocr": "EasyOcrOptions",
+        "tesseract": "TesseractOcrOptions",
+        "tesseract_cli": "TesseractCliOcrOptions",
+    }
+
+    def _resolve_ocr_engine(self, engine_name: str):
+        """Map an OCR engine name string to the corresponding docling options class.
+
+        Args:
+            engine_name: One of ``"easyocr"``, ``"tesseract"``,
+                ``"tesseract_cli"``.
+
+        Returns:
+            The OCR options class (e.g. ``EasyOcrOptions``).
+
+        Raises:
+            ValueError: if *engine_name* is not recognised.
+        """
+        imports = self._ensure_docling_imports()
+        cls_name = self._OCR_ENGINE_NAMES.get(engine_name)
+        if cls_name is None:
+            supported = ", ".join(sorted(self._OCR_ENGINE_NAMES))
+            raise ValueError(
+                f"Unsupported OCR engine: {engine_name!r}. "
+                f"Supported engines: {supported}"
+            )
+        return imports[cls_name]
 
     # ------------------------------------------------------------------
     # Kwarg validation
@@ -1556,10 +1601,9 @@ class DoclingParser(Parser):
         """Create a hashable key from kwargs for converter caching.
 
         Only kwargs that actually affect the underlying ``DocumentConverter``
-        configuration are included here; backward-compat-only kwargs (such
-        as ``ocr_engine``, ``ocr_lang``, ``pdf_backend``, ``abort_on_error``)
-        and ``env`` are intentionally excluded so they do not cause
-        unnecessary cache invalidation and model reloads.
+        configuration are included here; backward-compat-only kwargs
+        (``abort_on_error`` and ``env``) are intentionally excluded so they
+        do not cause unnecessary cache invalidation and model reloads.
         """
         filtered = {
             k: v
@@ -1589,15 +1633,79 @@ class DoclingParser(Parser):
 
         pipeline_options = self._build_pipeline_options(**kwargs)
 
+        format_option_kwargs = {"pipeline_options": pipeline_options}
+
+        # --- pdf_backend ---
+        pdf_backend = kwargs.get("pdf_backend")
+        if pdf_backend is not None:
+            backend_cls = self._resolve_pdf_backend(pdf_backend)
+            format_option_kwargs["backend"] = backend_cls
+
         self._converter = DocumentConverter(
             format_options={
-                InputFormat.PDF: PdfFormatOption(
-                    pipeline_options=pipeline_options
-                ),
+                InputFormat.PDF: PdfFormatOption(**format_option_kwargs),
             }
         )
         self._converter_config_key = config_key
         return self._converter
+
+    # ------------------------------------------------------------------
+    # PDF backend resolution
+    # ------------------------------------------------------------------
+
+    _PDF_BACKEND_MAP = {
+        "dlparse_v2": (
+            "docling.backend.docling_parse_v2_backend",
+            "DoclingParseV2DocumentBackend",
+        ),
+        "dlparse_v1": (
+            "docling.backend.docling_parse_backend",
+            "DoclingParseDocumentBackend",
+        ),
+        "pypdfium2": (
+            "docling.backend.pypdfium2_backend",
+            "PyPdfiumDocumentBackend",
+        ),
+    }
+
+    def _resolve_pdf_backend(self, backend_name: str):
+        """Map a PDF backend name string to the corresponding docling backend class.
+
+        The backend classes are lazily imported from their respective
+        ``docling.backend.*`` modules.
+
+        Args:
+            backend_name: One of ``"dlparse_v1"``, ``"dlparse_v2"``,
+                ``"pypdfium2"``.
+
+        Returns:
+            The backend class.
+
+        Raises:
+            ValueError: if *backend_name* is not recognised or its module
+                is not available in the current docling installation.
+        """
+        entry = self._PDF_BACKEND_MAP.get(backend_name)
+        if entry is None:
+            supported = ", ".join(sorted(self._PDF_BACKEND_MAP))
+            raise ValueError(
+                f"Unsupported PDF backend: {backend_name!r}. "
+                f"Supported backends: {supported}"
+            )
+
+        module_path, class_name = entry
+        import importlib
+
+        try:
+            mod = importlib.import_module(module_path)
+        except ImportError as exc:
+            raise ValueError(
+                f"PDF backend {backend_name!r} requires module "
+                f"'{module_path}' which is not available in the current "
+                f"docling installation."
+            ) from exc
+
+        return getattr(mod, class_name)
 
     # ------------------------------------------------------------------
     # Python API parsing core
@@ -1681,15 +1789,17 @@ class DoclingParser(Parser):
             method: Parsing method (auto, txt, ocr)
             lang: Ignored by Docling (kept for API parity with MinerU).
                 Use ``ocr_lang`` in **kwargs for OCR language selection.
-            **kwargs: Docling Python API pipeline options:
+            **kwargs: Docling Python API options (all actively wired):
                 - table_mode (str): "accurate" or "fast"
                 - tables (bool): Enable/disable table extraction
                 - allow_ocr (bool): Enable/disable OCR
-                - ocr_engine (str): OCR engine selection
+                - ocr_engine (str): "easyocr", "tesseract", or
+                  "tesseract_cli"
                 - ocr_lang (str): Comma-separated OCR languages
-                - pdf_backend (str): PDF backend to use
+                  (e.g. "en,de")
+                - pdf_backend (str): "dlparse_v1", "dlparse_v2", or
+                  "pypdfium2"
                 - artifacts_path (str): Model artifacts directory
-                - abort_on_error (bool): Abort on first error
 
         Returns:
             List[Dict[str, Any]]: List of content blocks
@@ -1725,17 +1835,20 @@ class DoclingParser(Parser):
             output_dir: Output directory path
             lang: Ignored by Docling (kept for API parity with MinerU).
                 Use ``ocr_lang`` in **kwargs for OCR language selection.
-            **kwargs: Docling Python API pipeline options, forwarded to the
-                underlying parser. Supported options include:
+            **kwargs: Docling Python API options, forwarded to the
+                underlying parser. All options are actively wired:
 
-                - ``table_mode``: Table extraction mode.
+                - ``table_mode``: Table extraction mode
+                  (``"accurate"`` or ``"fast"``).
                 - ``tables``: Whether to extract tables.
                 - ``allow_ocr``: Enable OCR when needed.
-                - ``ocr_engine``: OCR engine to use.
-                - ``ocr_lang``: OCR language code.
-                - ``pdf_backend``: PDF backend for Docling.
-                - ``artifacts_path``: Path to store Docling artifacts.
-                - ``abort_on_error``: Whether to abort on first error.
+                - ``ocr_engine``: ``"easyocr"``, ``"tesseract"``, or
+                  ``"tesseract_cli"``.
+                - ``ocr_lang``: Comma-separated OCR languages
+                  (e.g. ``"en,de"``).
+                - ``pdf_backend``: ``"dlparse_v1"``, ``"dlparse_v2"``,
+                  or ``"pypdfium2"``.
+                - ``artifacts_path``: Path to model artifacts directory.
         Returns:
             List[Dict[str, Any]]: List of content blocks
         """
@@ -1876,15 +1989,17 @@ class DoclingParser(Parser):
             output_dir: Output directory path
             lang: Ignored by Docling (kept for API parity with MinerU).
                 Use ``ocr_lang`` in **kwargs for OCR language selection.
-            **kwargs: Docling Python API pipeline options:
+            **kwargs: Docling Python API options (all actively wired):
                 - table_mode (str): "accurate" or "fast"
                 - tables (bool): Enable/disable table extraction
                 - allow_ocr (bool): Enable/disable OCR
-                - ocr_engine (str): OCR engine selection
+                - ocr_engine (str): "easyocr", "tesseract", or
+                  "tesseract_cli"
                 - ocr_lang (str): Comma-separated OCR languages
-                - pdf_backend (str): PDF backend to use
+                  (e.g. "en,de")
+                - pdf_backend (str): "dlparse_v1", "dlparse_v2", or
+                  "pypdfium2"
                 - artifacts_path (str): Model artifacts directory
-                - abort_on_error (bool): Abort on first error
 
         Returns:
             List[Dict[str, Any]]: List of content blocks
@@ -1923,15 +2038,17 @@ class DoclingParser(Parser):
             output_dir: Output directory path
             lang: Ignored by Docling (kept for API parity with MinerU).
                 Use ``ocr_lang`` in **kwargs for OCR language selection.
-            **kwargs: Docling Python API pipeline options:
+            **kwargs: Docling Python API options (all actively wired):
                 - table_mode (str): "accurate" or "fast"
                 - tables (bool): Enable/disable table extraction
                 - allow_ocr (bool): Enable/disable OCR
-                - ocr_engine (str): OCR engine selection
+                - ocr_engine (str): "easyocr", "tesseract", or
+                  "tesseract_cli"
                 - ocr_lang (str): Comma-separated OCR languages
-                - pdf_backend (str): PDF backend to use
+                  (e.g. "en,de")
+                - pdf_backend (str): "dlparse_v1", "dlparse_v2", or
+                  "pypdfium2"
                 - artifacts_path (str): Model artifacts directory
-                - abort_on_error (bool): Abort on first error
 
         Returns:
             List[Dict[str, Any]]: List of content blocks
